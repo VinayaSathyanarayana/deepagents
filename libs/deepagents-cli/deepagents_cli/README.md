@@ -194,3 +194,121 @@ deepagents = "deepagents.cli:cli_main"
 ```
 
 This means when users install the package, they can run `deepagents` directly.
+
+## Skills
+
+The CLI implements **Agent Skills** - Anthropic's pattern for equipping agents with specialized, discoverable capabilities. Skills are markdown files with YAML frontmatter that provide structured guidance for specific tasks.
+
+### Creating Skills
+
+```bash
+# Create a new skill from template
+deepagents skills create web-scraping
+
+# This creates ~/.deepagents/skills/web-scraping/SKILL.md with:
+# ---
+# name: web-scraping
+# description: [Brief description]
+# ---
+# [Detailed instructions, examples, and best practices]
+```
+
+### Managing Skills
+
+```bash
+# List all available skills
+deepagents skills list
+
+# View detailed skill information
+deepagents skills info web-research
+```
+
+### Skill Directory Structure  
+
+Skills are stored globally in `~/.deepagents/skills/` and shared across all agents:
+
+```
+~/.deepagents/
+├── skills/                    # Global skills library
+│   ├── web-research/
+│   │   ├── SKILL.md          # Main instructions (YAML + Markdown)
+│   │   └── helper.py         # Optional: supporting files
+│   └── code-review/
+│       ├── SKILL.md
+│       └── checklist.md
+└── agent/                     # Per-agent memory
+    └── agent.md
+```
+
+### How Skills Work (Progressive Disclosure)
+
+Skills follow Anthropic's **progressive disclosure** pattern:
+
+1. **Discovery**: Agent sees skill names + descriptions in system prompt at startup
+2. **Loading**: Agent reads full `SKILL.md` when task matches skill domain
+3. **Execution**: Agent follows skill's step-by-step instructions
+4. **Resources**: Agent accesses supporting files as needed
+
+### Built-in Skills
+
+DeepAgents CLI includes two example skills:
+
+**`web-research`**: Comprehensive methodology for conducting structured web research
+- Search strategy and source evaluation
+- Information organization patterns
+- Synthesis techniques with examples
+
+**`code-review`**: Systematic code review across 8 dimensions
+- Functionality, readability, security, performance
+- Review templates and examples
+- Integration with memory system
+
+### Using Skills in the CLI
+
+When you run the CLI, agents automatically:
+
+```python
+# 1. Skills are loaded at session start
+Skills Middleware → Loads metadata from ~/.deepagents/skills/
+
+# 2. Skills list injected into system prompt
+System Prompt includes:
+"""
+Available Skills:
+- web-research: Structured approach to web research
+  → Read /skills/web-research/SKILL.md for full instructions
+- code-review: Systematic code review methodology
+  → Read /skills/code-review/SKILL.md for full instructions
+"""
+
+# 3. Agent recognizes when skills apply
+User: "Can you research the latest Python frameworks?"
+Agent: Recognizes web-research skill is relevant
+
+# 4. Agent loads full skill instructions
+Agent: read_file('/skills/web-research/SKILL.md')
+
+# 5. Agent follows skill workflow
+Agent: Executes research following skill's structured approach
+```
+
+### Example Session with Skills
+
+```bash
+$ deepagents --agent researcher
+
+> Research the latest developments in quantum computing
+
+[Agent recognizes web-research skill applies]
+
+✓ Reading /skills/web-research/SKILL.md
+✓ Following research methodology from skill
+✓ Step 1: Defining research questions
+✓ Step 2: Executing targeted searches
+  - web_search("quantum computing 2025 breakthroughs")
+  - web_search("quantum error correction advances")
+✓ Step 3: Organizing findings in /memories/research-quantum.md
+✓ Step 4: Synthesizing report
+
+[Agent delivers comprehensive research report following skill's structure]
+```
