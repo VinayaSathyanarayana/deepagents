@@ -91,7 +91,9 @@ def parse_args():
     create_parser.add_argument("name", help="Name of the skill to create (e.g., web-research)")
 
     # Skills info
-    info_parser = skills_subparsers.add_parser("info", help="Show detailed information about a skill")
+    info_parser = skills_subparsers.add_parser(
+        "info", help="Show detailed information about a skill"
+    )
     info_parser.add_argument("name", help="Name of the skill to show info for")
 
     # Default interactive mode
@@ -236,7 +238,9 @@ def cli_main():
                 show_skill_info(args.name)
             else:
                 # No subcommand provided, show help
-                console.print("[yellow]Please specify a skills subcommand: list, create, or info[/yellow]")
+                console.print(
+                    "[yellow]Please specify a skills subcommand: list, create, or info[/yellow]"
+                )
                 console.print("\nExamples:")
                 console.print("  deepagents skills list")
                 console.print("  deepagents skills create web-research")
