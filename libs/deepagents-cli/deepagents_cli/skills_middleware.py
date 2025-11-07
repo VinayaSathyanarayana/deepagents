@@ -177,7 +177,7 @@ class SkillsMiddleware(AgentMiddleware):
         if "skills_metadata" not in state or state.get("skills_metadata") is None:
             try:
                 # Load skills from directory
-                skills = self.loader.load_skills()
+                skills = self.loader.list()
                 return {"skills_metadata": skills}
             except Exception:
                 # Silently handle errors, return empty list

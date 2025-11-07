@@ -1,4 +1,10 @@
-"""CLI commands for skill management."""
+"""CLI commands for skill management.
+
+These commands are registered with the CLI via cli.py:
+- deepagents skills list
+- deepagents skills create <name>
+- deepagents skills info <name>
+"""
 
 from pathlib import Path
 
@@ -24,7 +30,7 @@ def list_skills():
 
     # Load skills
     loader = SkillLoader(skills_dir=skills_dir)
-    skills = loader.load_skills()
+    skills = loader.list()
 
     if not skills:
         console.print("[yellow]No valid skills found.[/yellow]")
@@ -153,7 +159,7 @@ def show_skill_info(skill_name: str):
 
     # Load skills
     loader = SkillLoader(skills_dir=skills_dir)
-    skills = loader.load_skills()
+    skills = loader.list()
 
     # Find the skill
     skill = next((s for s in skills if s["name"] == skill_name), None)

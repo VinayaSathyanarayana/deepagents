@@ -51,21 +51,23 @@ class SkillLoader:
 
     Example:
         ```python
-        loader = SkillLoader(skills_dir="~/.deepagents/skills")
-        skills = loader.load_skills()
+        from pathlib import Path
+
+        skills_dir = Path.home() / ".deepagents" / "skills"
+        loader = SkillLoader(skills_dir=skills_dir)
+        skills = loader.list()
         for skill in skills:
             print(f"{skill['name']}: {skill['description']}")
         ```
     """
 
-    def __init__(self, skills_dir: str | Path = "~/.deepagents/skills") -> None:
+    def __init__(self, skills_dir: Path) -> None:
         """Initialize the skill loader.
 
         Args:
-            skills_dir: Path to the skills directory. Defaults to ~/.deepagents/skills
+            skills_dir: Path to the skills directory.
         """
-        self.skills_dir = Path(skills_dir).expanduser()
-        self.skills: list[SkillMetadata] = []
+        self.skills_dir = skills_dir.expanduser()
 
     def _parse_skill_metadata(self, skill_md_path: Path) -> SkillMetadata | None:
         """Parse YAML frontmatter from a SKILL.md file.
@@ -107,12 +109,12 @@ class SkillLoader:
                 path=str(skill_md_path),
             )
 
-        except Exception:
-            # Silently skip malformed files
+        except (OSError, UnicodeDecodeError):
+            # Silently skip malformed or inaccessible files
             return None
 
-    def load_skills(self) -> list[SkillMetadata]:
-        """Load all skills from the skills directory.
+    def list(self) -> list[SkillMetadata]:
+        """List all skills from the skills directory.
 
         Scans the skills directory for subdirectories containing SKILL.md files,
         parses YAML frontmatter, and returns skill metadata.
@@ -120,11 +122,11 @@ class SkillLoader:
         Returns:
             List of skill metadata dictionaries with name, description, and path.
         """
-        self.skills = []
+        skills: list[SkillMetadata] = []
 
         # Check if skills directory exists
         if not self.skills_dir.exists():
-            return self.skills
+            return skills
 
         # Iterate through subdirectories
         for skill_dir in self.skills_dir.iterdir():
@@ -139,48 +141,45 @@ class SkillLoader:
             # Parse metadata
             metadata = self._parse_skill_metadata(skill_md_path)
             if metadata:
-                self.skills.append(metadata)
+                skills.append(metadata)
 
-        return self.skills
+        return skills
 
-    def get_skill_names(self) -> list[str]:
-        """Get list of loaded skill names.
-
-        Returns:
-            List of skill names.
-        """
-        return [skill["name"] for skill in self.skills]
-
-    def format_skills_for_system_message(self) -> str:
+    def format_skills_for_system_message(self, skills: list[SkillMetadata]) -> str:
         """Format skills metadata for injection into system prompt.
 
         Creates a formatted list of skills with their descriptions and paths,
         following Anthropic's progressive disclosure pattern.
 
+        Args:
+            skills: List of skill metadata to format.
+
         Returns:
             Formatted string for system prompt.
         """
-        if not self.skills:
+        if not skills:
             return "No skills available."
 
         lines = ["Available skills:"]
-        for skill in self.skills:
+        for skill in skills:
             lines.append(f"- **{skill['name']}**: {skill['description']}")
             lines.append(f"  Read `/skills/{Path(skill['path']).parent.name}/SKILL.md` for details")
 
         return "\n".join(lines)
 
 
-def load_skills(skills_dir: str | Path = "~/.deepagents/skills") -> tuple[list[SkillMetadata], str]:
+def load_skills(skills_dir: Path | None = None) -> tuple[list[SkillMetadata], str]:
     """Convenience function to load skills and format for system prompt.
 
     Args:
-        skills_dir: Path to the skills directory.
+        skills_dir: Path to the skills directory. Defaults to ~/.deepagents/skills
 
     Returns:
         Tuple of (skills metadata list, formatted string for system prompt).
     """
+    if skills_dir is None:
+        skills_dir = Path.home() / ".deepagents" / "skills"
     loader = SkillLoader(skills_dir)
-    skills = loader.load_skills()
-    formatted = loader.format_skills_for_system_message()
+    skills = loader.list()
+    formatted = loader.format_skills_for_system_message(skills)
     return skills, formatted
