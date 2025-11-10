@@ -6,20 +6,22 @@ from google.adk.agents import LlmAgent, SequentialAgent
 from google.adk.tools import google_search  # Built-in Google Search tool
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
-# This import is required to create the initial message object
-from google.genai.types import Content
+# We don't need the Content import for this method
+# from google.genai.types import Content 
 
 # --- Load Environment Variables ---
 load_dotenv()
 
 # --- 1. Define Specialist Agents ---
 
+# Agent 1: The Researcher
 ResearchAgent = LlmAgent(
     model="gemini-2.5-pro",
     name="ResearchAgent",
+    # FIXED: Changed instruction to read from {user_topic}
     instruction="""
     You are a professional researcher. Your goal is to take the topic
-    from the user's initial message, use the google_search tool to find
+    from {user_topic}, use the google_search tool to find
     3-5 key facts, statistics, or recent developments about it.
     
     Synthesize these findings into a concise, bulleted list. This list
@@ -30,6 +32,7 @@ ResearchAgent = LlmAgent(
     output_key="research_findings",
 )
 
+# Agent 2: The Blog Writer
 BlogWriterAgent = LlmAgent(
     model="gemini-2.5-pro",
     name="BlogWriterAgent",
@@ -84,21 +87,20 @@ async def main(topic: str):
     # C. Create a Session Context
     print(f"\n Creating session {session_id} with initial topic...")
     
-    # FIXED: The 'parts' argument expects a list of dictionaries,
-    # not a list of strings.
-    initial_content = Content(parts=[{'text': topic}], role="user")
-    
+    # FIXED: This is the new hypothesis.
+    # Pass the topic as an arbitrary keyword argument to be stored
+    # in the session state.
     await session_service.create_session(
         app_name=app_name,
         user_id=user_id,
         session_id=session_id,
-        initial_message=initial_content
+        user_topic=topic  # This is the custom variable name
     )
 
     # D. Execute the Agent Workflow
     print(f" Passing control to {ResearchAgent.name} for research...")
     
-    # The run() method now *only* needs the session identifiers.
+    # The run() method only needs the session identifiers.
     llm_response = await runner.run(
         user_id=user_id,
         session_id=session_id
