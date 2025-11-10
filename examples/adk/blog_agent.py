@@ -8,12 +8,10 @@ from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 
 # --- Load Environment Variables ---
-# This loads the GOOGLE_API_KEY and GOOGLE_GENAI_USE_VERTEXAI from the.env file
 load_dotenv()
 
 # --- 1. Define Specialist Agents ---
 
-# Agent 1: The Researcher
 ResearchAgent = LlmAgent(
     model="gemini-2.5-pro",
     name="ResearchAgent",
@@ -30,7 +28,6 @@ ResearchAgent = LlmAgent(
     output_key="research_findings",
 )
 
-# Agent 2: The Blog Writer
 BlogWriterAgent = LlmAgent(
     model="gemini-2.5-pro",
     name="BlogWriterAgent",
@@ -68,9 +65,9 @@ async def main(topic: str):
     print(f"--- Starting Blog Generation for Topic: '{topic}' ---")
 
     # A. Setup Runner Dependencies
-    session_service = InMemorySessionService()  # Manages agent memory/state
+    session_service = InMemorySessionService()
     
-    # Use the 'agents' app_name as inferred from the previous error log
+    # Keep the app_name fix from before
     app_name = "agents" 
     user_id = "user_123"
     session_id = "session_456"
@@ -90,10 +87,9 @@ async def main(topic: str):
     # D. Execute the Agent Workflow
     print(f"\n Passing topic to {ResearchAgent.name} for research...")
     
-    # The runner.run() method handles the entire sequential flow.
     llm_response = await runner.run(
-        # FIXED: Pass the topic as the first positional argument.
-        topic,  
+        # FIXED: This is the correct keyword argument for the runner.
+        request_text=topic,  
         user_id=user_id,
         session_id=session_id
     )
