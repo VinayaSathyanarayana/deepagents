@@ -6,7 +6,7 @@ from google.adk.agents import LlmAgent, SequentialAgent
 from google.adk.tools import google_search  # Built-in Google Search tool
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
-# FIXED: This import is required to create the initial message object
+# This import is required to create the initial message object
 from google.genai.types import Content
 
 # --- Load Environment Variables ---
@@ -82,14 +82,17 @@ async def main(topic: str):
     )
 
     # C. Create a Session Context
-    # FIXED: This is the new hypothesis based on all previous errors.
-    # We pass the topic as a 'Content' object using the 'initial_message' keyword.
     print(f"\n Creating session {session_id} with initial topic...")
+    
+    # FIXED: The 'parts' argument expects a list of dictionaries,
+    # not a list of strings.
+    initial_content = Content(parts=[{'text': topic}], role="user")
+    
     await session_service.create_session(
         app_name=app_name,
         user_id=user_id,
         session_id=session_id,
-        initial_message=Content(parts=[topic], role="user")
+        initial_message=initial_content
     )
 
     # D. Execute the Agent Workflow
