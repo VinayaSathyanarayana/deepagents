@@ -6,7 +6,8 @@ from google.adk.agents import LlmAgent, SequentialAgent
 from google.adk.tools import google_search  # Built-in Google Search tool
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
-# from google.genai.types import Content # Not needed
+# FIXED: This import is required to create the message object
+from google.genai.types import Content 
 
 # --- Load Environment Variables ---
 load_dotenv()
@@ -17,11 +18,10 @@ load_dotenv()
 ResearchAgent = LlmAgent(
     model="gemini-2.5-pro",
     name="ResearchAgent",
-    # This instruction implicitly uses the 'new_message'
     instruction="""
-    You are a professional researcher. Your goal is to take a topic,
-    use the google_search tool to find 3-5 key facts, statistics, or
-    recent developments about it.
+    You are a professional researcher. Your goal is to take a topic
+    from the user's message, use the google_search tool to find
+    3-5 key facts, statistics, or recent developments about it.
     
     Synthesize these findings into a concise, bulleted list. This list
     will be the *only* information passed to the writer.
@@ -86,7 +86,6 @@ async def main(topic: str):
     # C. Create a Session Context
     print(f"\n Creating session {session_id}...")
     
-    # The topic is NOT passed here.
     await session_service.create_session(
         app_name=app_name,
         user_id=user_id,
@@ -96,11 +95,13 @@ async def main(topic: str):
     # D. Execute the Agent Workflow
     print(f" Passing control to {ResearchAgent.name} for research...")
     
-    # FIXED: 'run_async' is an async generator, so we must
-    # iterate over it with 'async for' to get the results.
+    # FIXED: 'new_message' cannot be a string.
+    # It must be a Content object.
+    user_message = Content(parts=[{'text': topic}], role="user")
+    
     llm_response = None  # Initialize to capture the last response
     async for response_event in runner.run_async(
-        new_message=topic,  # This argument is correct
+        new_message=user_message,  # Pass the Content object here
         user_id=user_id,
         session_id=session_id
     ):
