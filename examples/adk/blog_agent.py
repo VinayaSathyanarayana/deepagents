@@ -6,8 +6,7 @@ from google.adk.agents import LlmAgent, SequentialAgent
 from google.adk.tools import google_search  # Built-in Google Search tool
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
-# We don't need the Content import
-# from google.genai.types import Content 
+# from google.genai.types import Content # Not needed
 
 # --- Load Environment Variables ---
 load_dotenv()
@@ -18,11 +17,11 @@ load_dotenv()
 ResearchAgent = LlmAgent(
     model="gemini-2.5-pro",
     name="ResearchAgent",
-    # This instruction correctly reads from the {user_topic} state variable
+    # This instruction implicitly uses the 'new_message'
     instruction="""
-    You are a professional researcher. Your goal is to take the topic
-    from {user_topic}, use the google_search tool to find
-    3-5 key facts, statistics, or recent developments about it.
+    You are a professional researcher. Your goal is to take a topic,
+    use the google_search tool to find 3-5 key facts, statistics, or
+    recent developments about it.
     
     Synthesize these findings into a concise, bulleted list. This list
     will be the *only* information passed to the writer.
@@ -85,22 +84,22 @@ async def main(topic: str):
     )
 
     # C. Create a Session Context
-    print(f"\n Creating session {session_id} with initial topic...")
+    print(f"\n Creating session {session_id}...")
     
-    # FIXED: Using the 'state' argument as specified by the documentation.
-    # We pass the topic as a dictionary.
+    # The topic is NOT passed here.
     await session_service.create_session(
         app_name=app_name,
         user_id=user_id,
-        session_id=session_id,
-        state={'user_topic': topic}  # This is the correct way
+        session_id=session_id
     )
 
     # D. Execute the Agent Workflow
     print(f" Passing control to {ResearchAgent.name} for research...")
     
-    # The run() method only needs the session identifiers.
+    # FIXED: The error and your documentation confirm
+    # the argument is 'new_message'.
     llm_response = await runner.run(
+        new_message=topic,  # This is the correct argument
         user_id=user_id,
         session_id=session_id
     )
@@ -122,6 +121,7 @@ if __name__ == "__main__":
         print('Example: python blog_agent.py "The Future of Quantum Computing"')
         sys.exit(1)
 
+    # FIXED: Corrected my typo from 'joi' to 'join'
     topic_from_cli = " ".join(sys.argv[1:])
 
     try:
