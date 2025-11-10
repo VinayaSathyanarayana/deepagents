@@ -6,7 +6,7 @@ from google.adk.agents import LlmAgent, SequentialAgent
 from google.adk.tools import google_search  # Built-in Google Search tool
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
-# We don't need the Content import for this method
+# We don't need the Content import
 # from google.genai.types import Content 
 
 # --- Load Environment Variables ---
@@ -18,7 +18,7 @@ load_dotenv()
 ResearchAgent = LlmAgent(
     model="gemini-2.5-pro",
     name="ResearchAgent",
-    # FIXED: Changed instruction to read from {user_topic}
+    # This instruction correctly reads from the {user_topic} state variable
     instruction="""
     You are a professional researcher. Your goal is to take the topic
     from {user_topic}, use the google_search tool to find
@@ -87,14 +87,13 @@ async def main(topic: str):
     # C. Create a Session Context
     print(f"\n Creating session {session_id} with initial topic...")
     
-    # FIXED: This is the new hypothesis.
-    # Pass the topic as an arbitrary keyword argument to be stored
-    # in the session state.
+    # FIXED: Using the 'state' argument as specified by the documentation.
+    # We pass the topic as a dictionary.
     await session_service.create_session(
         app_name=app_name,
         user_id=user_id,
         session_id=session_id,
-        user_topic=topic  # This is the custom variable name
+        state={'user_topic': topic}  # This is the correct way
     )
 
     # D. Execute the Agent Workflow
