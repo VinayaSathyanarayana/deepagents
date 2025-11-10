@@ -96,10 +96,10 @@ async def main(topic: str):
     # D. Execute the Agent Workflow
     print(f" Passing control to {ResearchAgent.name} for research...")
     
-    # FIXED: The error and your documentation confirm
-    # the argument is 'new_message'.
-    llm_response = await runner.run(
-        new_message=topic,  # This is the correct argument
+    # FIXED: Changed 'run' to 'run_async' because we are in an
+    # 'async def main' function and 'run' is not awaitable.
+    llm_response = await runner.run_async(
+        new_message=topic,  # This argument is correct
         user_id=user_id,
         session_id=session_id
     )
@@ -121,7 +121,7 @@ if __name__ == "__main__":
         print('Example: python blog_agent.py "The Future of Quantum Computing"')
         sys.exit(1)
 
-    # FIXED: Corrected my typo from 'joi' to 'join'
+    # Corrected the .join() typo
     topic_from_cli = " ".join(sys.argv[1:])
 
     try:
