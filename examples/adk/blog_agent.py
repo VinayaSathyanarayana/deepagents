@@ -96,17 +96,21 @@ async def main(topic: str):
     # D. Execute the Agent Workflow
     print(f" Passing control to {ResearchAgent.name} for research...")
     
-    # FIXED: Changed 'run' to 'run_async' because we are in an
-    # 'async def main' function and 'run' is not awaitable.
-    llm_response = await runner.run_async(
+    # FIXED: 'run_async' is an async generator, so we must
+    # iterate over it with 'async for' to get the results.
+    llm_response = None  # Initialize to capture the last response
+    async for response_event in runner.run_async(
         new_message=topic,  # This argument is correct
         user_id=user_id,
         session_id=session_id
-    )
+    ):
+        llm_response = response_event  # Get the latest event
+
     
     print(f"\n {BlogWriterAgent.name} has completed the blog.")
 
     # E. Print the Final Result
+    # The 'llm_response' variable now holds the final event
     print("\n--- Generated Blog Post ---")
     print(llm_response.final_response_text)
     print("-----------------------------\n")
