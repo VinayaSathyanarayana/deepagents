@@ -1,14 +1,11 @@
 import sys
 import asyncio
 from dotenv import load_dotenv
-# from typing import AsyncGenerator  <- Removed, not used
-# import os  <- Removed, not used
 
 from google.adk.agents import LlmAgent, SequentialAgent
 from google.adk.tools import google_search  # Built-in Google Search tool
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
-# from google.genai.types import Content  <- Removed, not used
 
 # --- Load Environment Variables ---
 # This loads the GOOGLE_API_KEY and GOOGLE_GENAI_USE_VERTEXAI from the.env file
@@ -17,7 +14,6 @@ load_dotenv()
 # --- 1. Define Specialist Agents ---
 
 # Agent 1: The Researcher
-# This agent's job is to take a topic, use Google Search, and output findings.
 ResearchAgent = LlmAgent(
     model="gemini-2.5-pro",
     name="ResearchAgent",
@@ -31,13 +27,10 @@ ResearchAgent = LlmAgent(
     """,
     description="Researches a topic using Google Search and provides a summary.",
     tools=[google_search],
-    # This is the critical part: the agent's final output will be saved
-    # into the session state under the key 'research_findings'.
     output_key="research_findings",
 )
 
 # Agent 2: The Blog Writer
-# This agent does not search. It only writes based on the researcher's findings.
 BlogWriterAgent = LlmAgent(
     model="gemini-2.5-pro",
     name="BlogWriterAgent",
@@ -56,17 +49,12 @@ BlogWriterAgent = LlmAgent(
     {research_findings}
     """,
     description="Writes a blog post from a set of research findings.",
-    # This agent has no tools. It only processes the input from its instruction.
 )
 
 # --- 2. Define the Coordinator Agent (The Team) ---
 
-# This SequentialAgent acts as the team manager.
-# It ensures Agent 1 runs, then Agent 2 runs, passing the data between them.
 BlogCoordinator = SequentialAgent(
     name="BlogCoordinator",
-    # FIXED: This line had a syntax error.
-    # It now correctly provides the list of sub-agents in order.
     sub_agents=[ResearchAgent, BlogWriterAgent],
     description="Coordinates the research and writing process for a blog post.",
 )
@@ -81,32 +69,31 @@ async def main(topic: str):
 
     # A. Setup Runner Dependencies
     session_service = InMemorySessionService()  # Manages agent memory/state
-    app_name = "blog_agent_app"
+    
+    # Use the 'agents' app_name as inferred from the previous error log
+    app_name = "agents" 
     user_id = "user_123"
     session_id = "session_456"
 
     # B. Initialize the Runner
-    # The Runner is the main entry point for running agents programmatically.
     runner = Runner(
-        agent=BlogCoordinator,  # We run the coordinator, not the individual agents
+        agent=BlogCoordinator,
         app_name=app_name,
         session_service=session_service,
     )
 
     # C. Create a Session Context
-    # This ensures the agents have a shared state to pass data (research_findings)
     await session_service.create_session(
         app_name=app_name, user_id=user_id, session_id=session_id
     )
 
     # D. Execute the Agent Workflow
-    # We pass the user's topic as the first query.
-    # The 'query' (topic) goes to the first agent in the sequence (ResearchAgent).
     print(f"\n Passing topic to {ResearchAgent.name} for research...")
     
     # The runner.run() method handles the entire sequential flow.
     llm_response = await runner.run(
-        query=topic,  # The topic from the command line
+        # FIXED: Pass the topic as the first positional argument.
+        topic,  
         user_id=user_id,
         session_id=session_id
     )
@@ -114,8 +101,6 @@ async def main(topic: str):
     print(f"\n {BlogWriterAgent.name} has completed the blog.")
 
     # E. Print the Final Result
-    # The final_response_text will be the output of the *last* agent
-    # in the sequence (BlogWriterAgent).
     print("\n--- Generated Blog Post ---")
     print(llm_response.final_response_text)
     print("-----------------------------\n")
@@ -130,12 +115,9 @@ if __name__ == "__main__":
         print('Example: python blog_agent.py "The Future of Quantum Computing"')
         sys.exit(1)
 
-    # Combine all arguments into a single topic string
     topic_from_cli = " ".join(sys.argv[1:])
 
     try:
-        # asyncio.run() is the standard way to run an async main function
-        # from a synchronous script.
         asyncio.run(main(topic_from_cli))
     except Exception as e:
         print(f"An error occurred during the agent workflow: {e}")
