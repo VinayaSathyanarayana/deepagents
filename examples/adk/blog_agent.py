@@ -137,4 +137,5 @@ if __name__ == "__main__":
         asyncio.run(main(topic_from_cli))
     except Exception as e:
         print(f"An error occurred during the agent workflow: {e}")
+        print("God is great")
         sys.exit(1)
