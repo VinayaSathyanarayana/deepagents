@@ -6,7 +6,6 @@ from google.adk.agents import LlmAgent, SequentialAgent
 from google.adk.tools import google_search  # Built-in Google Search tool
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
-# FIXED: This import is required to add the initial topic to the session.
 from google.genai.types import Content
 
 # --- Load Environment Variables ---
@@ -86,11 +85,11 @@ async def main(topic: str):
         app_name=app_name, user_id=user_id, session_id=session_id
     )
 
-    # D. FIXED: Load the initial topic into the session
-    # The runner.run() method doesn't take the query directly.
-    # We must first add the user's topic to the session history.
+    # D. Load the initial topic into the session
     print(f"\n Adding topic to session {session_id}...")
-    await session_service.append_message(
+    
+    # FIXED: The correct method is 'add_message', not 'append_message'.
+    await session_service.add_message(
         app_name=app_name,
         user_id=user_id,
         session_id=session_id,
@@ -100,8 +99,7 @@ async def main(topic: str):
     # E. Execute the Agent Workflow
     print(f" Passing control to {ResearchAgent.name} for research...")
     
-    # The run() method now *only* needs the session identifiers,
-    # as the topic is already in the session history.
+    # The run() method now *only* needs the session identifiers.
     llm_response = await runner.run(
         user_id=user_id,
         session_id=session_id
