@@ -1,14 +1,14 @@
 import sys
 import asyncio
-import os
 from dotenv import load_dotenv
-from typing import AsyncGenerator
+# from typing import AsyncGenerator  <- Removed, not used
+# import os  <- Removed, not used
 
 from google.adk.agents import LlmAgent, SequentialAgent
 from google.adk.tools import google_search  # Built-in Google Search tool
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
-from google.genai.types import Content
+# from google.genai.types import Content  <- Removed, not used
 
 # --- Load Environment Variables ---
 # This loads the GOOGLE_API_KEY and GOOGLE_GENAI_USE_VERTEXAI from the.env file
@@ -65,7 +65,9 @@ BlogWriterAgent = LlmAgent(
 # It ensures Agent 1 runs, then Agent 2 runs, passing the data between them.
 BlogCoordinator = SequentialAgent(
     name="BlogCoordinator",
-    sub_agents=,
+    # FIXED: This line had a syntax error.
+    # It now correctly provides the list of sub-agents in order.
+    sub_agents=[ResearchAgent, BlogWriterAgent],
     description="Coordinates the research and writing process for a blog post.",
 )
 
