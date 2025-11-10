@@ -6,7 +6,7 @@ from google.adk.agents import LlmAgent, SequentialAgent
 from google.adk.tools import google_search  # Built-in Google Search tool
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
-# from google.genai.types import Content  <- Removed, not needed for this method
+# from google.genai.types import Content  <- Removed, we will pass a simple string
 
 # --- Load Environment Variables ---
 load_dotenv()
@@ -81,20 +81,20 @@ async def main(topic: str):
     )
 
     # C. Create a Session Context
-    # FIXED: The topic is passed as 'initial_query' *during* session creation.
+    # FIXED: This is our last and most logical attempt.
+    # Pass the topic as 'query' during session creation.
     print(f"\n Creating session {session_id} with initial topic...")
     await session_service.create_session(
         app_name=app_name,
         user_id=user_id,
         session_id=session_id,
-        initial_query=topic  # This is the new, correct argument
+        query=topic  # Using 'query' instead of 'initial_query'
     )
 
     # D. Execute the Agent Workflow
     print(f" Passing control to {ResearchAgent.name} for research...")
     
-    # The run() method now *only* needs the session identifiers,
-    # as the topic was already part of the session creation.
+    # The run() method only needs the session identifiers.
     llm_response = await runner.run(
         user_id=user_id,
         session_id=session_id
