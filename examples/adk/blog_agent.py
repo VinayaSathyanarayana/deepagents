@@ -6,7 +6,7 @@ from google.adk.agents import LlmAgent, SequentialAgent
 from google.adk.tools import google_search  # Built-in Google Search tool
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
-from google.genai.types import Content
+# from google.genai.types import Content  <- Removed, not needed for this method
 
 # --- Load Environment Variables ---
 load_dotenv()
@@ -17,8 +17,8 @@ ResearchAgent = LlmAgent(
     model="gemini-2.5-pro",
     name="ResearchAgent",
     instruction="""
-    You are a professional researcher. Your goal is to take a topic
-    from the user's first message, use the google_search tool to find
+    You are a professional researcher. Your goal is to take the topic
+    from the user's initial query, use the google_search tool to find
     3-5 key facts, statistics, or recent developments about it.
     
     Synthesize these findings into a concise, bulleted list. This list
@@ -81,25 +81,20 @@ async def main(topic: str):
     )
 
     # C. Create a Session Context
+    # FIXED: The topic is passed as 'initial_query' *during* session creation.
+    print(f"\n Creating session {session_id} with initial topic...")
     await session_service.create_session(
-        app_name=app_name, user_id=user_id, session_id=session_id
-    )
-
-    # D. Load the initial topic into the session
-    print(f"\n Adding topic to session {session_id}...")
-    
-    # FIXED: The correct method is 'add_message', not 'append_message'.
-    await session_service.add_message(
         app_name=app_name,
         user_id=user_id,
         session_id=session_id,
-        message=Content(parts=[topic], role="user")
+        initial_query=topic  # This is the new, correct argument
     )
 
-    # E. Execute the Agent Workflow
+    # D. Execute the Agent Workflow
     print(f" Passing control to {ResearchAgent.name} for research...")
     
-    # The run() method now *only* needs the session identifiers.
+    # The run() method now *only* needs the session identifiers,
+    # as the topic was already part of the session creation.
     llm_response = await runner.run(
         user_id=user_id,
         session_id=session_id
@@ -107,7 +102,7 @@ async def main(topic: str):
     
     print(f"\n {BlogWriterAgent.name} has completed the blog.")
 
-    # F. Print the Final Result
+    # E. Print the Final Result
     print("\n--- Generated Blog Post ---")
     print(llm_response.final_response_text)
     print("-----------------------------\n")
