@@ -6,22 +6,21 @@ from google.adk.agents import LlmAgent, SequentialAgent
 from google.adk.tools import google_search  # Built-in Google Search tool
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
+# FIXED: This import is required to create the initial message object
 from google.genai.types import Content
 
 # --- Load Environment Variables ---
-# This loads the GOOGLE_API_KEY and GOOGLE_GENAI_USE_VERTEXAI from the.env file
 load_dotenv()
 
 # --- 1. Define Specialist Agents ---
 
-# Agent 1: The Researcher
 ResearchAgent = LlmAgent(
     model="gemini-2.5-pro",
     name="ResearchAgent",
     instruction="""
-    You are a professional researcher. Your goal is to take a topic,
-    use the google_search tool to find 3-5 key facts, statistics, or
-    recent developments about it.
+    You are a professional researcher. Your goal is to take the topic
+    from the user's initial message, use the google_search tool to find
+    3-5 key facts, statistics, or recent developments about it.
     
     Synthesize these findings into a concise, bulleted list. This list
     will be the *only* information passed to the writer.
@@ -31,7 +30,6 @@ ResearchAgent = LlmAgent(
     output_key="research_findings",
 )
 
-# Agent 2: The Blog Writer
 BlogWriterAgent = LlmAgent(
     model="gemini-2.5-pro",
     name="BlogWriterAgent",
@@ -56,8 +54,7 @@ BlogWriterAgent = LlmAgent(
 
 BlogCoordinator = SequentialAgent(
     name="BlogCoordinator",
-    # This was the first fix
-    sub_agents=[ResearchAgent, BlogWriterAgent], 
+    sub_agents=[ResearchAgent, BlogWriterAgent],
     description="Coordinates the research and writing process for a blog post.",
 )
 
@@ -70,32 +67,36 @@ async def main(topic: str):
     print(f"--- Starting Blog Generation for Topic: '{topic}' ---")
 
     # A. Setup Runner Dependencies
-    session_service = InMemorySessionService()  # Manages agent memory/state
+    session_service = InMemorySessionService()
     
-    # FIXED: Use the 'agents' app_name as inferred from the first error log.
-    app_name = "agents"
+    # Use the 'agents' app_name as inferred from the error log
+    app_name = "agents" 
     user_id = "user_123"
     session_id = "session_456"
 
     # B. Initialize the Runner
     runner = Runner(
-        agent=BlogCoordinator,  # We run the coordinator, not the individual agents
+        agent=BlogCoordinator,
         app_name=app_name,
         session_service=session_service,
     )
 
     # C. Create a Session Context
+    # FIXED: This is the new hypothesis based on all previous errors.
+    # We pass the topic as a 'Content' object using the 'initial_message' keyword.
+    print(f"\n Creating session {session_id} with initial topic...")
     await session_service.create_session(
-        app_name=app_name, user_id=user_id, session_id=session_id
+        app_name=app_name,
+        user_id=user_id,
+        session_id=session_id,
+        initial_message=Content(parts=[topic], role="user")
     )
 
     # D. Execute the Agent Workflow
-    print(f"\n Passing topic to {ResearchAgent.name} for research...")
+    print(f" Passing control to {ResearchAgent.name} for research...")
     
-    # FIXED: We are back to using 'query='. The theory is that fixing
-    # the 'app_name' (above) will make the Runner recognize this argument.
+    # The run() method now *only* needs the session identifiers.
     llm_response = await runner.run(
-        query=topic,  # The topic from the command line
         user_id=user_id,
         session_id=session_id
     )
@@ -117,7 +118,6 @@ if __name__ == "__main__":
         print('Example: python blog_agent.py "The Future of Quantum Computing"')
         sys.exit(1)
 
-    # Combine all arguments into a single topic string
     topic_from_cli = " ".join(sys.argv[1:])
 
     try:
