@@ -69,13 +69,10 @@ async def main(topics: list[str], agent_count: int = 3):
     print(f"\n--- Starting Multi-Agent Debate on Topics: {topic_str} ---")
 
     session_service = InMemorySessionService()
-    #app_name = "multi_agent_debate"
-    app_name = "agents"
+    app_name = "agents"  # Must match the agent directory
     user_id = "user_123"
-    session_id = "session_456"
 
-    # ✅ FIXED: InMemorySessionService requires no arguments
-    # await session_service.create_session()
+    # ✅ FIXED: Create session with required arguments
     await session_service.create_session(app_name=app_name, user_id=user_id)
 
     coordinator = build_debate_coordinator(agent_count)
@@ -86,8 +83,7 @@ async def main(topics: list[str], agent_count: int = 3):
     llm_response = None
     async for response_event in runner.run_async(
         new_message=user_message,
-        user_id=user_id,
-        session_id=session_id
+        user_id=user_id
     ):
         llm_response = response_event
 
