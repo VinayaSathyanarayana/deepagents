@@ -149,14 +149,17 @@ if __name__ == "__main__":
             print("Error: '--agents' must be followed by an integer.")
             sys.exit(1)
 
-    # Extract --topicname
-    if "--topicname" in args:
-        idx = args.index("--topicname")
+    # Extract --topicname or --topic
+    if "--topicname" in args or "--topic" in args:
+        if "--topicname" in args:
+            idx = args.index("--topicname")
+        else:
+            idx = args.index("--topic")
         try:
             topic_name = args[idx + 1]
             del args[idx:idx + 2]
         except:
-            print("Error: '--topicname' must be followed by a string.")
+            print("Error: '--topicname' or '--topic' must be followed by a string.")
             sys.exit(1)
 
     # Remaining args are actual debate topics
