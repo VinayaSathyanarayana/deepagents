@@ -109,9 +109,9 @@ async def main(topic: str):
 
     # E. Print the Final Result
     print("\n--- Generated Blog Post ---")
-    # FIXED: Changed 'final_response_text' to 'response_text' 
+    # FINAL FIX ATTEMPT: Changed 'response_text' to 'text'
     # to correctly access the content of the final Event object.
-    print(llm_response.response_text)
+    print(llm_response.text)
     print("-----------------------------\n")
     print("Workflow complete.")
 
@@ -129,7 +129,7 @@ if __name__ == "__main__":
     try:
         asyncio.run(main(topic_from_cli))
     except Exception as e:
-        # Check if the error is the API overload error (503)
+        # Provide a helpful note if the error is the expected API overload
         if "503 UNAVAILABLE" in str(e):
              print("\nNote: The workflow completed successfully but failed due to API overload (503 UNAVAILABLE). Please try running the script again in a moment.")
         else:
