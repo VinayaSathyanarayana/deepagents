@@ -79,7 +79,12 @@ async def main(topics: list[str], agent_count: int = 3):
     coordinator = build_debate_coordinator(agent_count)
     runner = Runner(agent=coordinator, app_name=app_name, session_service=session_service)
 
-    user_message = Content(parts=[{'text': topic_str}], role="user")
+    # ✅ Pass context variable 'topics' explicitly
+    user_message = Content(
+        parts=[{'text': topic_str}],
+        role="user",
+        context={"topics": topic_str}
+    )
 
     llm_response = None
     async for response_event in runner.run_async(
