@@ -71,9 +71,10 @@ async def main(topics: list[str], agent_count: int = 3):
     session_service = InMemorySessionService()
     app_name = "agents"  # Must match the agent directory
     user_id = "user_123"
+    session_id = "session_456"
 
-    # ✅ FIXED: Create session with required arguments
-    await session_service.create_session(app_name=app_name, user_id=user_id)
+    # ✅ Create session with explicit session_id
+    await session_service.create_session(app_name=app_name, user_id=user_id, session_id=session_id)
 
     coordinator = build_debate_coordinator(agent_count)
     runner = Runner(agent=coordinator, app_name=app_name, session_service=session_service)
@@ -83,7 +84,8 @@ async def main(topics: list[str], agent_count: int = 3):
     llm_response = None
     async for response_event in runner.run_async(
         new_message=user_message,
-        user_id=user_id
+        user_id=user_id,
+        session_id=session_id
     ):
         llm_response = response_event
 
