@@ -135,35 +135,36 @@ async def main(topics: list[str], agent_count: int, topic_name: str):
 
 # --- CLI Entry Point ---
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Usage: python committee_debate.py <topic1> <topic2> ... [--agents N] [--topicname NAME]")
-        sys.exit(1)
-
     args = sys.argv[1:]
     agent_count = 3
     topic_name = "MyTopic001"
 
+    # Extract --agents
     if "--agents" in args:
         idx = args.index("--agents")
         try:
             agent_count = int(args[idx + 1])
-            args.pop(idx + 1)
-            args.pop(idx)
+            del args[idx:idx + 2]
         except:
             print("Error: '--agents' must be followed by an integer.")
             sys.exit(1)
 
+    # Extract --topicname
     if "--topicname" in args:
         idx = args.index("--topicname")
         try:
             topic_name = args[idx + 1]
-            args.pop(idx + 1)
-            args.pop(idx)
+            del args[idx:idx + 2]
         except:
             print("Error: '--topicname' must be followed by a string.")
             sys.exit(1)
 
+    # Remaining args are actual debate topics
     topics = args
+
+    if not topics:
+        print("Usage: python committee_debate.py <topic1> <topic2> ... [--agents N] [--topicname NAME]")
+        sys.exit(1)
 
     try:
         asyncio.run(main(topics, agent_count, topic_name))
