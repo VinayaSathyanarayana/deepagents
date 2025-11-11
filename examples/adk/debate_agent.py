@@ -69,53 +69,73 @@ async def main(topics: list[str], agent_count: int = 3):
     print(f"\n--- Starting Multi-Agent Debate on Topics: {topic_str} ---")
 
     session_service = InMemorySessionService()
-    app_name = "agents"  # Must match the agent directory
+    app_name = "agents"
     user_id = "user_123"
     session_id = "session_456"
 
-    # ✅ Create session with explicit session_id
     await session_service.create_session(app_name=app_name, user_id=user_id, session_id=session_id)
 
     coordinator = build_debate_coordinator(agent_count)
     runner = Runner(agent=coordinator, app_name=app_name, session_service=session_service)
 
-    # ✅ Pass context variable 'topics' explicitly
-    user_message = Content(
-        parts=[{'text': topic_str}],
-        role="user",
-        context={"topics": topic_str}
-    )
+    user_message = Content(parts=[{'text': topic_str}], role="user")
 
-    llm_response = None
-    async for response_event in runner.run_async(
+    agent_outputs = {}
+    consensus_text = None
+
+    async for event in runner.run_async(
         new_message=user_message,
         user_id=user_id,
-        session_id=session_id
+        session_id=session_id,
+        context_variables={"topics": topic_str}
     ):
-        llm_response = response_event
+        author = event.author
+        partial = event.partial
+        content = event.content.parts[0].text if event.content and event.content.parts else ""
+        tool_calls = event.get_function_calls()
+        tool_results = event.get_function_responses()
 
-    # --- Save and Display Output ---
+        # --- Structured Logging ---
+        print(f"\n🔹 Agent: {author}")
+        print(f"🔸 Partial Output: {partial}")
+        print(f"🔸 Content:\n{content}")
+
+        if tool_calls:
+            print(f"🔧 Tool Calls: {[call.name for call in tool_calls]}")
+        if tool_results:
+            print(f"✅ Tool Results: {[res.name for res in tool_results]}")
+
+        # --- Track Agent Output ---
+        if author.startswith("DebateAgent_") or author == "ConsensusAgent":
+            agent_outputs[author] = content
+            if author == "ConsensusAgent":
+                consensus_text = content
+
+    # --- Save Final Consensus ---
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     safe_topic = "".join(c for c in topic_str if c.isalnum() or c in (' ')).rstrip().replace(' ', '_')[:30]
     filename = f"{safe_topic}_{timestamp}_consensus.txt"
-
-    consensus_text = llm_response.content.parts[0].text
 
     try:
         with open(filename, 'w', encoding='utf-8') as f:
             f.write(f"Topics: {topic_str}\n")
             f.write("-" * 40 + "\n\n")
-            f.write(consensus_text)
+            for agent_name, output in agent_outputs.items():
+                f.write(f"\nAgent: {agent_name}\n")
+                f.write("-" * 20 + "\n")
+                f.write(output + "\n")
+            f.write("\n--- Final Consensus ---\n")
+            f.write(consensus_text or "No consensus generated.")
 
-        print("\n--- Consensus Report Saved ---")
-        print(f"File: **{filename}**")
+        print("\n✅ Consensus Report Saved")
+        print(f"📄 File: {filename}")
         print("-" * 40 + "\n")
-        print(consensus_text)
+        print(consensus_text or "No consensus generated.")
 
     except Exception as file_error:
-        print(f"\nERROR: Could not write to file {filename}. Error: {file_error}")
+        print(f"\n❌ ERROR: Could not write to file {filename}. Error: {file_error}")
         print("\n--- Consensus Report (Console Fallback) ---")
-        print(consensus_text)
+        print(consensus_text or "No consensus generated.")
 
 # --- 5. CLI Entry Point ---
 if __name__ == "__main__":
