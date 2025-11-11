@@ -14,14 +14,14 @@ from google.genai.types import Content
 load_dotenv()
 
 # --- 1. Define Agent Factory ---
-def create_debate_agent(index: int) -> LlmAgent:
+def create_debate_agent(index: int, topic_str: str) -> LlmAgent:
     return LlmAgent(
         model="gemini-2.5-pro",
         name=f"DebateAgent_{index}",
         instruction=f"""
         You are DebateAgent_{index}, a specialist with a unique perspective.
         Your task is to analyze the intersection of the following topics:
-        {{topics}}
+        {topic_str}
 
         Present your viewpoint clearly, citing 3-5 key arguments or insights.
         Be constructive and persuasive, anticipating counterpoints.
@@ -32,34 +32,35 @@ def create_debate_agent(index: int) -> LlmAgent:
     )
 
 # --- 2. Define Consensus Agent ---
-ConsensusAgent = LlmAgent(
-    model="gemini-2.5-pro",
-    name="ConsensusAgent",
-    instruction="""
-    You are the ConsensusAgent. You will receive multiple viewpoints from debate agents.
-    Your task is to synthesize these into a unified, balanced consensus report.
+def create_consensus_agent(agent_count: int) -> LlmAgent:
+    views = "\n".join([f"{{agent_{i}_view}}" for i in range(agent_count)])
+    return LlmAgent(
+        model="gemini-2.5-pro",
+        name="ConsensusAgent",
+        instruction=f"""
+        You are the ConsensusAgent. You will receive multiple viewpoints from debate agents.
+        Your task is to synthesize these into a unified, balanced consensus report.
 
-    The report must include:
-    1. A title
-    2. A summary of the debated intersection
-    3. Key points of agreement
-    4. Remaining disagreements (if any)
-    5. Final consensus statement
+        The report must include:
+        1. A title
+        2. A summary of the debated intersection
+        3. Key points of agreement
+        4. Remaining disagreements (if any)
+        5. Final consensus statement
 
-    Here are the viewpoints:
-    {agent_0_view}
-    {agent_1_view}
-    {agent_2_view}
-    """,
-    description="Synthesizes agent viewpoints into a consensus report."
-)
+        Here are the viewpoints:
+        {views}
+        """,
+        description="Synthesizes agent viewpoints into a consensus report."
+    )
 
 # --- 3. Define Coordinator Agent ---
-def build_debate_coordinator(agent_count: int) -> SequentialAgent:
-    debate_agents = [create_debate_agent(i) for i in range(agent_count)]
+def build_debate_coordinator(agent_count: int, topic_str: str) -> SequentialAgent:
+    debate_agents = [create_debate_agent(i, topic_str) for i in range(agent_count)]
+    consensus_agent = create_consensus_agent(agent_count)
     return SequentialAgent(
         name="DebateCoordinator",
-        sub_agents=debate_agents + [ConsensusAgent],
+        sub_agents=debate_agents + [consensus_agent],
         description="Coordinates multi-agent debate and consensus synthesis."
     )
 
@@ -75,7 +76,7 @@ async def main(topics: list[str], agent_count: int = 3):
 
     await session_service.create_session(app_name=app_name, user_id=user_id, session_id=session_id)
 
-    coordinator = build_debate_coordinator(agent_count)
+    coordinator = build_debate_coordinator(agent_count, topic_str)
     runner = Runner(agent=coordinator, app_name=app_name, session_service=session_service)
 
     user_message = Content(parts=[{'text': topic_str}], role="user")
@@ -86,8 +87,7 @@ async def main(topics: list[str], agent_count: int = 3):
     async for event in runner.run_async(
         new_message=user_message,
         user_id=user_id,
-        session_id=session_id,
-        context_variables={"topics": topic_str}
+        session_id=session_id
     ):
         author = event.author
         partial = event.partial
