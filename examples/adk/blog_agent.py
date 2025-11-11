@@ -111,7 +111,8 @@ async def main(topic: str):
     print("\n--- Generated Blog Post ---")
     # FINAL FIX ATTEMPT: Changed 'response_text' to 'text'
     # to correctly access the content of the final Event object.
-    print(llm_response.text)
+    print(llm_response)
+    #print(llm_response.Text)
     print("-----------------------------\n")
     print("Workflow complete.")
 
