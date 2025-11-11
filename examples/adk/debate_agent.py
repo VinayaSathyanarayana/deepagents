@@ -73,7 +73,8 @@ async def main(topics: list[str], agent_count: int = 3):
     user_id = "user_123"
     session_id = "session_456"
 
-    await session_service.create_session(app_name, user_id, session_id)
+    # ✅ FIXED: InMemorySessionService requires no arguments
+    await session_service.create_session()
 
     coordinator = build_debate_coordinator(agent_count)
     runner = Runner(agent=coordinator, app_name=app_name, session_service=session_service)
