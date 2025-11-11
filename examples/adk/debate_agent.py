@@ -69,7 +69,8 @@ async def main(topics: list[str], agent_count: int = 3):
     print(f"\n--- Starting Multi-Agent Debate on Topics: {topic_str} ---")
 
     session_service = InMemorySessionService()
-    app_name = "multi_agent_debate"
+    #app_name = "multi_agent_debate"
+    app_name = "agents"
     user_id = "user_123"
     session_id = "session_456"
 
