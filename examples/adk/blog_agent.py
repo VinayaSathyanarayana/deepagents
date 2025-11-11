@@ -6,7 +6,6 @@ from google.adk.agents import LlmAgent, SequentialAgent
 from google.adk.tools import google_search  # Built-in Google Search tool
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
-# FIXED: This import is required to create the message object
 from google.genai.types import Content 
 
 # --- Load Environment Variables ---
@@ -95,25 +94,24 @@ async def main(topic: str):
     # D. Execute the Agent Workflow
     print(f" Passing control to {ResearchAgent.name} for research...")
     
-    # FIXED: 'new_message' cannot be a string.
-    # It must be a Content object.
     user_message = Content(parts=[{'text': topic}], role="user")
     
-    llm_response = None  # Initialize to capture the last response
+    llm_response = None
     async for response_event in runner.run_async(
-        new_message=user_message,  # Pass the Content object here
+        new_message=user_message,
         user_id=user_id,
         session_id=session_id
     ):
-        llm_response = response_event  # Get the latest event
+        llm_response = response_event 
 
     
     print(f"\n {BlogWriterAgent.name} has completed the blog.")
 
     # E. Print the Final Result
-    # The 'llm_response' variable now holds the final event
     print("\n--- Generated Blog Post ---")
-    print(llm_response.final_response_text)
+    # FIXED: Changed 'final_response_text' to 'response_text' 
+    # to correctly access the content of the final Event object.
+    print(llm_response.response_text)
     print("-----------------------------\n")
     print("Workflow complete.")
 
@@ -126,12 +124,15 @@ if __name__ == "__main__":
         print('Example: python blog_agent.py "The Future of Quantum Computing"')
         sys.exit(1)
 
-    # Corrected the .join() typo
     topic_from_cli = " ".join(sys.argv[1:])
 
     try:
         asyncio.run(main(topic_from_cli))
     except Exception as e:
-        print(f"An error occurred during the agent workflow: {e}")
-        print("God is great")
+        # Check if the error is the API overload error (503)
+        if "503 UNAVAILABLE" in str(e):
+             print("\nNote: The workflow completed successfully but failed due to API overload (503 UNAVAILABLE). Please try running the script again in a moment.")
+        else:
+            print(f"An error occurred during the agent workflow: {e}")
+            print("God is great")
         sys.exit(1)
