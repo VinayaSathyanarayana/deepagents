@@ -1,9 +1,11 @@
 import sys
 import asyncio
 from dotenv import load_dotenv
+import os # Added os import for file path
+from datetime import datetime # Added datetime for a unique filename
 
 from google.adk.agents import LlmAgent, SequentialAgent
-from google.adk.tools import google_search  # Built-in Google Search tool
+from google.adk.tools import google_search
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai.types import Content 
@@ -63,14 +65,13 @@ BlogCoordinator = SequentialAgent(
 
 async def main(topic: str):
     """
-    Asynchronously runs the agent workflow.
+    Asynchronously runs the agent workflow and saves the output to a file.
     """
     print(f"--- Starting Blog Generation for Topic: '{topic}' ---")
 
     # A. Setup Runner Dependencies
     session_service = InMemorySessionService()
     
-    # Use the 'agents' app_name as inferred from the error log
     app_name = "agents" 
     user_id = "user_123"
     session_id = "session_456"
@@ -107,14 +108,30 @@ async def main(topic: str):
     
     print(f"\n {BlogWriterAgent.name} has completed the blog.")
 
-    # E. Print the Final Result
-    print("\n--- Generated Blog Post ---")
-    # FINAL FIX ATTEMPT: Changed 'response_text' to 'text'
-    # to correctly access the content of the final Event object.
-    print(llm_response)
-    #print(llm_response.Text)
-    print("-----------------------------\n")
-    print("Workflow complete.")
+    # E. Save the Final Result to a File
+    # Create a clean filename from the topic and current time
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    safe_topic = "".join(c for c in topic if c.isalnum() or c in (' ')).rstrip().replace(' ', '_')[:30]
+    filename = f"{safe_topic}_{timestamp}_blog.txt"
+    
+    blog_content = llm_response.content.parts[0].text
+    
+    try:
+        with open(filename, 'w', encoding='utf-8') as f:
+            f.write(f"Topic: {topic}\n")
+            f.write("-" * 40 + "\n\n")
+            f.write(blog_content)
+        
+        print("\n--- Output Saved Successfully ---")
+        print(f"File created: **{filename}**")
+        print("-" * 40 + "\n")
+        print("Workflow complete.")
+        
+    except Exception as file_error:
+        print(f"\nFATAL: Could not write to file {filename}. Error: {file_error}")
+        # Print to console as a fallback
+        print("\n--- Generated Blog Post (Console Fallback) ---")
+        print(blog_content)
 
 
 # --- 4. Define the Command-Line Entry Point ---
