@@ -2,12 +2,8 @@ import sys
 import asyncio
 import os
 import glob
-import traceback
 from datetime import datetime
 from dotenv import load_dotenv
-
-# Import specific exceptions for retry logic
-from google.api_core.exceptions import ResourceExhausted, InternalServerError, ServiceUnavailable
 
 from google.adk.agents import LlmAgent, SequentialAgent
 from google.adk.tools import google_search
@@ -17,38 +13,6 @@ from google.genai.types import Content
 
 # --- Load Environment Variables ---
 load_dotenv()
-
-# --- (NEW) Get API Keys in Sequence ---
-def get_api_keys() -> list[str]:
-    """
-    Finds all GOOGLE/GEMINI API keys from environment variables.
-    
-    Returns keys in order:
-    1. GEMINI_API_KEY / GOOGLE_API_KEY
-    2. Numbered keys (GEMINI_API_KEY_001, GOOGLE_API_KEY002, etc.) sorted.
-    """
-    keys = {}
-    for key, value in os.environ.items():
-        if key.startswith("GEMINI_API_KEY") or key.startswith("GOOGLE_API_KEY"):
-            keys[key] = value
-
-    base_keys = []
-    numbered_keys = []
-
-    # Prioritize base keys
-    if "GEMINI_API_KEY" in keys:
-        base_keys.append(keys.pop("GEMINI_API_KEY"))
-    if "GOOGLE_API_KEY" in keys:
-        base_keys.append(keys.pop("GOOGLE_API_KEY"))
-
-    # Sort remaining numbered keys by name
-    sorted_numbered = sorted(keys.items())
-    numbered_keys = [v for k, v in sorted_numbered]
-
-    all_keys = base_keys + numbered_keys
-    if all_keys:
-        print(f"Found {len(all_keys)} API keys to try.")
-    return all_keys
 
 # --- Load Previous Reports ---
 def load_previous_reports(topic_name: str) -> str:
@@ -79,7 +43,7 @@ def save_committee_report(topic_name: str, content: str) -> str:
 # --- Define Debate Agent ---
 def create_debate_agent(index: int, topic_str: str) -> LlmAgent:
     return LlmAgent(
-        model="gemini-3-pro-preview", # Using 1.5 Pro, update if needed
+        model="gemini-3-pro-preview",
         name=f"DebateAgent_{index}",
         instruction=f"""
 You are DebateAgent_{index}, a domain expert with a unique perspective.
@@ -98,7 +62,7 @@ Be constructive and persuasive, anticipating counterpoints.
 def create_consensus_agent(agent_count: int, prior_reports: str, new_inputs: str) -> LlmAgent:
     views = "\n".join([f"{{agent_{i}_view}}" for i in range(agent_count)])
     return LlmAgent(
-        model="gemini-3-pro-preview", # Using 1.5 Pro, update if needed
+        model="gemini-3-pro-preview",
         name="ConsensusAgent",
         instruction=f"""
 You are the ConsensusAgent. Your task is to synthesize a new committee report.
@@ -153,39 +117,17 @@ async def main(topics: list[str], agent_count: int, topic_name: str):
     agent_outputs = {}
     consensus_text = None
 
-    print("Running agents...")
     async for event in runner.run_async(new_message=user_message, user_id="user_123", session_id="session_456"):
-        # (ENHANCEMENT 1) Add try/except for robust event processing
-        try:
-            author = event.author
-            content = ""
-            if event.content and event.content.parts and event.content.parts[0].text:
-                content = event.content.parts[0].text
-            
-            if author.startswith("DebateAgent_"):
-                print(f"-> Received view from {author}")
-                agent_outputs[author] = content
-            elif author == "ConsensusAgent":
-                print("-> Received final consensus")
-                consensus_text = content # Store separately for final report
-                agent_outputs[author] = content # Also store in dict
-            elif author == "User":
-                pass # Ignore user input
-            # else:
-                # print(f"-> Received other event from {author}") # Optional: for debugging tools
+        author = event.author
+        content = event.content.parts[0].text if event.content and event.content.parts else ""
+        if author.startswith("DebateAgent_") or author == "ConsensusAgent":
+            agent_outputs[author] = content
+            if author == "ConsensusAgent":
+                consensus_text = content
 
-        except Exception as e:
-            print(f"⚠️ Error processing event: {e}\nEvent: {event}")
-
-    print("Agent run finished.")
-    
-    # Build the final report
     full_report = f"Topics: {topic_str}\n" + "-"*40 + "\n\n"
     for agent_name, output in agent_outputs.items():
-        if agent_name == "ConsensusAgent":
-            continue # We add this last, from the consensus_text variable
         full_report += f"\nAgent: {agent_name}\n" + "-"*20 + "\n" + output + "\n"
-    
     full_report += "\n--- Final Consensus ---\n" + (consensus_text or "No consensus generated.")
 
     save_committee_report(topic_name, full_report)
@@ -197,7 +139,7 @@ if __name__ == "__main__":
     agent_count = 3
     topic_name = "MyTopic001"
 
-    # --- Arg Parsing ---
+    # Extract --agents
     if "--agents" in args:
         idx = args.index("--agents")
         try:
@@ -207,6 +149,7 @@ if __name__ == "__main__":
             print("Error: '--agents' must be followed by an integer.")
             sys.exit(1)
 
+    # Extract --topicname or --topic
     if "--topicname" in args or "--topic" in args:
         if "--topicname" in args:
             idx = args.index("--topicname")
@@ -219,47 +162,15 @@ if __name__ == "__main__":
             print("Error: '--topicname' or '--topic' must be followed by a string.")
             sys.exit(1)
 
+    # Remaining args are actual debate topics
     topics = args
+
     if not topics:
         print("Usage: python committee_debate.py <topic1> <topic2> ... [--agents N] [--topicname NAME]")
         sys.exit(1)
 
-    # --- (ENHANCEMENT 2) API Key Rotation and Retry Loop ---
-    api_keys = get_api_keys()
-    if not api_keys:
-        print("❌ Error: No API keys found.")
-        print("Please set GOOGLE_API_KEY or GEMINI_API_KEY in your .env file or environment.")
-        sys.exit(1)
-
-    key_index = 0
-    success = False
-    while key_index < len(api_keys):
-        current_key = api_keys[key_index]
-        print(f"\n--- Attempt {key_index + 1}/{len(api_keys)}: Using key ending in '...{current_key[-4:]}' ---")
-        
-        # Set the environment variable for google-genai to pick up
-        os.environ["GOOGLE_API_KEY"] = current_key
-
-        try:
-            asyncio.run(main(topics, agent_count, topic_name))
-            success = True
-            print("\n✅ Run completed successfully.")
-            break # Exit loop on success
-
-        except (ResourceExhausted, InternalServerError, ServiceUnavailable) as e:
-            print(f"⚠️ API Error (Retryable) with key index {key_index}: {type(e).__name__}")
-            key_index += 1
-            if key_index < len(api_keys):
-                print("Retrying with next key...")
-            else:
-                print("❌ All API keys failed or are rate-limited.")
-        
-        except Exception as e:
-            # Catch all other non-retryable errors
-            print(f"❌ An unrecoverable error occurred: {type(e).__name__} - {e}")
-            traceback.print_exc()
-            break # Exit loop, do not retry
-
-    if not success:
-        print("\nFailed to complete the run after trying all keys.")
+    try:
+        asyncio.run(main(topics, agent_count, topic_name))
+    except Exception as e:
+        print(f"An error occurred: {e}")
         sys.exit(1)
