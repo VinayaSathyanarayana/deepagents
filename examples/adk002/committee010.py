@@ -1,3 +1,6 @@
+# Jai Mata Di
+# Code finally working with Gemini and Claude via LiteLLM
+#
 import sys
 import asyncio
 import os
@@ -223,6 +226,8 @@ async def main(topics: list[str], agent_count: int, topic_name: str, use_genai: 
         "claude": "anthropic/claude-3-5-sonnet-20241022",
         "claude-opus": "anthropic/claude-3-opus-20240229",
         "claude-haiku": "anthropic/claude-3-haiku-20240307",
+        #"claude": "anthropic/claude-3-5-sonnet",
+        #"claude-haiku": "anthropic/claude-3-haiku",
         # Gemini (native to ADK)
         "gemini": "gemini-3-pro-preview",
         "gemini-flash": "gemini-2.5-flash",
