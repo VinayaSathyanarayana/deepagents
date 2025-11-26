@@ -12,3 +12,4 @@ langgraph==0.2.35
 langgraph-checkpoint==2.0.1
 langsmith==0.1.134
 pyyaml
+PyPDF2

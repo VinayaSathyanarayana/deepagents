@@ -1,11 +1,11 @@
-# Program: workflow.py
 import operator
 import re
 import time
 import os
 import yaml
 import uuid
-from typing import Annotated, Literal, Tuple, TypedDict
+import functools
+from typing import Annotated, Literal, Tuple, TypedDict, Dict, Any
 
 from dotenv import load_dotenv
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
@@ -23,7 +23,7 @@ from langgraph.graph.state import CompiledStateGraph
 load_dotenv()
 
 # ==============================================================================
-# 1. CUSTOM LOADER LOGIC (Replaces agents.loader)
+# 1. DYNAMIC LOADER LOGIC (With Safety & Debugging)
 # ==============================================================================
 
 def load_human():
@@ -35,47 +35,61 @@ def load_human():
         "profile": "The human user seeking assistance."
     }
 
-def load_panel(panel_name: str):
+@functools.lru_cache(maxsize=10)
+def load_panel_cached(panel_name: str):
     """
-    Parses a YAML panel file. 
-    Handles cases where:
-    1. Agents are nested under a panel name (e.g. abstract_evaluation_panel -> Agent1).
-    2. Agents are at the root level.
-    3. The file contains non-agent configs like 'scoring_rubric' or 'templates'.
+    Loads agent configuration from YAML.
+    Includes Error Handling to prevent crashes if file is missing/empty.
     """
+    print(f"--- DEBUG: Attempting to load panel: {panel_name} ---")
+    
     # Construct path assuming the script is running from the project root
-    # Ensure this matches your actual folder structure
     file_path = os.path.join("agents", "panels", f"{panel_name}.yaml")
     
     if not os.path.exists(file_path):
-        print(f"Warning: File {file_path} not found. Using empty agent set.")
+        print(f"--- ERROR: Panel file not found at {file_path} ---")
         return {}
 
-    with open(file_path, 'r', encoding='utf-8') as f:
-        data = yaml.safe_load(f)
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            data = yaml.safe_load(f)
+    except Exception as e:
+        print(f"--- ERROR: Failed to parse YAML file {file_path}: {e} ---")
+        return {}
 
     agents = {}
-
-    # Keys to explicitly ignore as they are not agents
     ignored_keys = ['scoring_rubric', 'sample_evaluation_template', 'total_score', 'evaluation_template']
 
-    for key, value in data.items():
-        if key in ignored_keys:
-            continue
+    if data:
+        for key, value in data.items():
+            if key in ignored_keys:
+                continue
 
-        # Check if the value is a dictionary
-        if isinstance(value, dict):
-            # CASE A: This is an Agent (It has a 'persona' field)
-            if 'persona' in value:
-                agents[key] = value
-            
-            # CASE B: This is a Group/Panel Name (Agents are nested inside)
-            # We look one level deeper to find the agents
-            else:
-                for sub_key, sub_value in value.items():
-                    if isinstance(sub_value, dict) and 'persona' in sub_value:
-                        agents[sub_key] = sub_value
+            if isinstance(value, dict):
+                # CASE A: This is an Agent (It has a 'persona' field)
+                if 'persona' in value:
+                    agents[key] = value
+                
+                # CASE B: This is a Group/Panel Name (Agents are nested inside)
+                else:
+                    for sub_key, sub_value in value.items():
+                        if isinstance(sub_value, dict) and 'persona' in sub_value:
+                            agents[sub_key] = sub_value
+    
+    print(f"--- DEBUG: Successfully loaded {len(agents)} agents: {list(agents.keys())} ---")
+    return agents
 
+def get_agents_from_config(config: RunnableConfig) -> Dict[str, Any]:
+    """Helper to retrieve agents based on the selected panel in config."""
+    # 1. Get requested panel name
+    panel_name = config.get("configurable", {}).get("panel_name", "abstract_evaluation_panel")
+    agents = load_panel_cached(panel_name)
+    
+    # 2. Safety Fallback: If the requested panel is empty (broken file), try default
+    if not agents:
+        print(f"--- WARNING: Panel '{panel_name}' yielded 0 agents. Falling back to default. ---")
+        agents = load_panel_cached("abstract_evaluation_panel")
+        
     return agents
 
 # ==============================================================================
@@ -85,7 +99,8 @@ def load_panel(panel_name: str):
 # LLM INITIALIZATION
 openai_llm = ChatOpenAI(model="gpt-4o", temperature=0.7, max_retries=5)
 openai_llm_mini = ChatOpenAI(model="gpt-4o-mini", max_retries=5)
-anthropic_llm = ChatAnthropic(model="claude-haiku-4-5-20251001", max_retries=5)
+anthropic_llm = ChatAnthropic(model="claude-3-haiku-20240307", max_retries=5)
+# Updated to 2.5 as requested
 gemini_llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", max_retries=5)
 
 LLMS = {
@@ -95,32 +110,16 @@ LLMS = {
     "gemini": gemini_llm,
 }
 
-# CONFIG
+# CONFIG DEFAULTS
 DEFAULT_LEAD_LLM = "gemini" 
 DEFAULT_CONTRIBUTOR_LLM = "anthropic" 
-AGENTS_SET = "abstract_evaluation_panel" # Matches the filename without .yaml
-
 DEFAULT_LEAD_AGENT_CONTRIBUTIONS_LAST = 10
 DEFAULT_CONTRIBUTOR_AGENT_CONTRIBUTIONS_LAST = 5
 DEFAULT_LEAD_LISTEN_LAST = 5
 DEFAULT_CONTRIBUTOR_LISTEN_LAST = 2
 
-# LOAD AGENTS
-try:
-    AGENTS = load_panel(AGENTS_SET)
-    HUMAN = load_human()
-    ALL_PARTICIPANTS = AGENTS | {"human": HUMAN}
-    AGENT_NAMES = list(AGENTS.keys())
-    
-    if not AGENTS:
-        print("CRITICAL WARNING: No agents were loaded. Check your YAML file path and formatting.")
-        
-except Exception as e:
-    print(f"Error loading agents: {e}")
-    AGENTS = {}
-    AGENT_NAMES = []
-    ALL_PARTICIPANTS = {}
-
+# Helper constant for the human participant
+HUMAN = load_human()
 
 # ==============================================================================
 # 3. PROMPTS
@@ -239,15 +238,37 @@ lead_agent_prompt = ChatPromptTemplate.from_messages(
 
 debate_director_prompt = ChatPromptTemplate.from_messages(
     [
-        ("system", 
-         """You are the Debate Director. Your current task is to review the most recent contributions from the panel members.
+        (
+            "system", 
+            """You are the Debate Director. Your current task is to review the most recent contributions from the panel members.
           
-          Based on the contributions and the existing conversation history, decide the next step:
-          1. **CONTINUE_DEBATE**: If there is significant disagreement (look for [CONTRAST] or [DISAGREE] tags) or if the topic is complex and requires further refinement/synthesis by the lead agent.
-          2. **PRESENT_FINDINGS**: If the contributions are consistent, consensus is reached, or the ideas are sufficiently refined to be presented to the @human.
+            Based on the contributions and the existing conversation history, decide the next step:
+            1. **CONTINUE_DEBATE**: If there is significant disagreement (look for [CONTRAST] or [DISAGREE] tags) or if the topic is complex and requires further refinement/synthesis by the lead agent.
+            2. **PRESENT_FINDINGS**: If the contributions are consistent, consensus is reached, or the ideas are sufficiently refined to be presented to the @human.
 
-          Output **only** the selected keyword: CONTINUE_DEBATE or PRESENT_FINDINGS. Do not add any other text, explanation, or markdown formatting.
-          """),
+            Output **only** the selected keyword: CONTINUE_DEBATE or PRESENT_FINDINGS. Do not add any other text, explanation, or markdown formatting.
+            """
+        ),
+        MessagesPlaceholder(variable_name="messages"),
+    ]
+)
+
+# --- FINAL RESPONSE PROMPT ---
+final_response_prompt = ChatPromptTemplate.from_messages(
+    [
+        (
+            "system",
+            """You are the Lead Agent: {display_name}.
+            The expert panel has concluded its debate and provided their inputs.
+            
+            Your goal now is to **synthesize** all the information and **write the final response** to the @human's original request.
+            
+            - If the user asked for a Course Outline, write the full outline now.
+            - If the user asked for code, write the code now.
+            - Ignore the [OFFER]/[INTERJECTION] format. Just write normally and professionally.
+            - Ensure the final output is comprehensive and directly addresses the user's prompt.
+            """
+        ),
         MessagesPlaceholder(variable_name="messages"),
     ]
 )
@@ -290,16 +311,9 @@ class ContributorOutputState(TypedDict):
 def format_participants(participants: {}, exclude: list[str] = []) -> str:
     return "\n".join(
         [
-            """
-------------------------------
-display_name: {display_name}
-profile: {profile}
-""".format(
-                display_name=participant_info['display_name'], 
-                profile=participant_info['profile']
-            )
-            for participant, participant_info in participants.items()
-            if participant not in exclude
+            f"display_name: {info['display_name']}\nprofile: {info['profile']}"
+            for name, info in participants.items()
+            if name not in exclude
         ]
     )
 
@@ -342,36 +356,32 @@ def get_step_messages(state: CollaborativeState, lead_agent_name: str, agent_con
 
     return list(reversed(messages))
 
-def format_conversation_state(state: CollaborativeState) -> str:
-    prev_message_str = state["messages"][-1].content if state["messages"] else ""
-    contribution_step = next((step for step in reversed(state["steps"]) if step["category"] == "contribution"), None)
-    agent_contributions_str = ""
-    if contribution_step:
-        agent_contributions = [
-            message
-            for message in contribution_step["messages"]
-            if message.content != "[PASS]"
-        ]
-        agent_contributions_str = "\n\n".join(
-            [f"{message.name}: {message.content}" for message in agent_contributions]
-        )
-    return f"@{state['lead_agent'][-1]}: {prev_message_str}\n\n{agent_contributions_str}\n\nHuman: "
-
 # ==============================================================================
-# 6. NODE FUNCTIONS
+# 6. NODE FUNCTIONS (With Safety Checks & Final Node)
 # ==============================================================================
 
-async def lead_agent_executor(
-    state: CollaborativeState, config: RunnableConfig
-):
+async def lead_agent_executor(state: CollaborativeState, config: RunnableConfig):
+    # DYNAMIC LOAD: Get agents from config
+    agents = get_agents_from_config(config)
+    agent_names = list(agents.keys())
+    all_participants = agents | {"human": HUMAN}
+
+    # --- SAFETY CHECK FOR PANEL SWITCHING ---
     if not state.get("lead_agent"):
-        if not AGENT_NAMES:
-            raise ValueError("No agents defined to act as the lead agent.")
-        lead_agent_name = AGENT_NAMES[0]
+        # No history, pick default
+        if not agent_names: raise ValueError("CRITICAL ERROR: No agents loaded in lead_agent_executor.")
+        lead_agent_name = agent_names[0]
     else:
-        lead_agent_name = state["lead_agent"][-1]
+        # History exists, check validity
+        current_history_lead = state["lead_agent"][-1]
+        if current_history_lead in agents:
+            lead_agent_name = current_history_lead
+        else:
+            print(f"--- INFO: Agent '{current_history_lead}' not found in current panel. Switching to '{agent_names[0]}'. ---")
+            lead_agent_name = agent_names[0]
+    # ----------------------------------------
         
-    lead_agent_def = AGENTS[lead_agent_name]
+    lead_agent_def = agents[lead_agent_name]
 
     await adispatch_custom_event(
         "lead_agent_executor",
@@ -384,6 +394,7 @@ async def lead_agent_executor(
 
     messages = get_step_messages(state, lead_agent_name, DEFAULT_LEAD_AGENT_CONTRIBUTIONS_LAST, lead_agent_def.get("lead_listen_last", DEFAULT_LEAD_LISTEN_LAST))
     
+    # --- ADDED config=config FOR STREAMING ---
     response = await lead_agent.ainvoke(
         {
             "name": lead_agent_name,
@@ -392,15 +403,17 @@ async def lead_agent_executor(
             "role": lead_agent_def["role"],
             "messages": messages,
             "participants": format_participants(
-                ALL_PARTICIPANTS, exclude=[lead_agent_name]
+                all_participants, exclude=[lead_agent_name]
             ),
-        }
+        },
+        config=config
     )
     response.name = lead_agent_name
     response.additional_kwargs["category"] = "lead"
 
     return {
         "messages": [response],
+        "lead_agent": [lead_agent_name], # Update state with valid agent
         "steps": [
             {
                 "id": str(uuid.uuid4()),
@@ -411,10 +424,13 @@ async def lead_agent_executor(
         ],
     }
 
-async def contributor_agent_executor(
-    state: ContributorInputState, config: RunnableConfig
-) -> ContributorOutputState:
-    contributor_agent_info = AGENTS[state["agent_name"]]
+async def contributor_agent_executor(state: ContributorInputState, config: RunnableConfig) -> ContributorOutputState:
+    # DYNAMIC LOAD
+    agents = get_agents_from_config(config)
+    all_participants = agents | {"human": HUMAN}
+
+    contributor_agent_info = agents[state["agent_name"]]
+    
     await adispatch_custom_event(
         "contributor_agent_executor",
         {"agent_name": state["agent_name"]},
@@ -428,6 +444,8 @@ async def contributor_agent_executor(
         )
     ]
     contributor_agent = contributor_agent_prompt | llm
+    
+    # --- ADDED config=config FOR STREAMING ---
     result = await contributor_agent.ainvoke(
         {
             "name": state["agent_name"],
@@ -436,9 +454,10 @@ async def contributor_agent_executor(
             "role": contributor_agent_info["role"],
             "messages": state["messages"],
             "participants": format_participants(
-                ALL_PARTICIPANTS, exclude=[state["agent_name"]]
+                all_participants, exclude=[state["agent_name"]]
             ),
-        }
+        },
+        config=config
     )
     result.name = state["agent_name"]
     result.additional_kwargs["consolidation_id"] = state["consolidation_id"]
@@ -447,13 +466,23 @@ async def contributor_agent_executor(
     return {"contributions": [result], "messages": [result]}
 
 async def debate_director_node(state: CollaborativeState, config: RunnableConfig) -> dict:
+    # DYNAMIC LOAD
+    agents = get_agents_from_config(config)
+    agent_names = list(agents.keys())
+
+    # --- SAFETY CHECK FOR PANEL SWITCHING ---
     if not state.get("lead_agent"):
-         if not AGENT_NAMES: raise ValueError("No agents defined.")
-         lead_agent_name = AGENT_NAMES[0]
+         if not agent_names: raise ValueError("CRITICAL ERROR: No agents loaded in debate_director.")
+         lead_agent_name = agent_names[0]
     else:
-        lead_agent_name = state["lead_agent"][-1]
+        current_history_lead = state["lead_agent"][-1]
+        if current_history_lead in agents:
+            lead_agent_name = current_history_lead
+        else:
+            lead_agent_name = agent_names[0]
+    # ----------------------------------------
         
-    lead_agent_def = AGENTS[lead_agent_name]
+    lead_agent_def = agents[lead_agent_name]
 
     await adispatch_custom_event(
         "debate_director_node",
@@ -466,7 +495,8 @@ async def debate_director_node(state: CollaborativeState, config: RunnableConfig
 
     messages = get_step_messages(state, lead_agent_name, DEFAULT_LEAD_AGENT_CONTRIBUTIONS_LAST, 1)
 
-    response = await director_agent.ainvoke({"messages": messages, "name": lead_agent_name})
+    # --- ADDED config=config FOR STREAMING ---
+    response = await director_agent.ainvoke({"messages": messages, "name": lead_agent_name}, config=config)
     
     decision = response.content.strip().upper()
     
@@ -490,6 +520,46 @@ async def debate_director_node(state: CollaborativeState, config: RunnableConfig
     return {
         "steps": [update_step],
         "messages": [decision_message]
+    }
+
+async def final_response_node(state: CollaborativeState, config: RunnableConfig):
+    """
+    Executes the Lead Agent one last time to synthesize the findings into a proper response.
+    """
+    print("--- EXEC: Final Synthesis ---")
+    agents = get_agents_from_config(config)
+    
+    # Identify Lead Agent (Safety Check included)
+    if state.get("lead_agent") and state["lead_agent"][-1] in agents:
+        lead_agent_name = state["lead_agent"][-1]
+    else:
+        lead_agent_name = list(agents.keys())[0]
+
+    lead_agent_def = agents[lead_agent_name]
+    
+    # --- CRITICAL FIX: DISPATCH EVENT SO UI KNOWS TO CREATE A MESSAGE BOX ---
+    await adispatch_custom_event(
+        "final_response_node", 
+        {"agent_name": lead_agent_name}, 
+        config=config
+    )
+
+    # Use the Final Response Prompt
+    llm = LLMS[lead_agent_def.get("llm", DEFAULT_LEAD_LLM)]
+    chain = final_response_prompt | llm
+    
+    # --- CRITICAL FIX: ADDED config=config FOR STREAMING ---
+    # We pass the full message history so the agent sees all the [OFFERS] and context
+    response = await chain.ainvoke({
+        "display_name": lead_agent_def["display_name"],
+        "messages": state["messages"]
+    }, config=config)
+    
+    response.name = lead_agent_name
+    
+    return {
+        "messages": [response],
+        "steps": [{"id": str(uuid.uuid4()), "step": "final_response_node", "messages": [response], "category": "lead"}]
     }
 
 def appoint_lead_agent(state: CollaborativeState, agent_name: str, human_input: str):
@@ -526,22 +596,37 @@ def appoint_lead_agent(state: CollaborativeState, agent_name: str, human_input: 
         ],
     }
 
-def human_input_received_node(state: CollaborativeState):
+def human_input_received_node(state: CollaborativeState, config: RunnableConfig):
+    # DYNAMIC LOAD
+    agents = get_agents_from_config(config)
+    agent_names = list(agents.keys())
+    
+    # SAFETY: If agents are empty, we cannot proceed.
+    if not agent_names:
+        raise ValueError("CRITICAL ERROR: No agents loaded from panel configuration.")
+
     human_input = state["human_inputs"][-1]
     agent_match = re.search(r"@(\w+)", human_input)
     
     if agent_match:
         agent_name = agent_match.group(1)
-        if agent_name in AGENTS:
+        if agent_name in agents:
             return appoint_lead_agent(state, agent_name, human_input)
     
     current_lead_agents = state.get("lead_agent")
+    
+    # --- SAFETY CHECK FOR PANEL SWITCHING ---
     if not current_lead_agents:
-        if not AGENT_NAMES:
-             raise ValueError("No agents defined to set as default lead agent.")
-        lead_agent_to_set = [AGENT_NAMES[0]] 
+        lead_agent_to_set = [agent_names[0]] 
     else:
-        lead_agent_to_set = [current_lead_agents[-1]] 
+        # Check if history matches current panel
+        last_agent = current_lead_agents[-1]
+        if last_agent in agents:
+            lead_agent_to_set = [last_agent]
+        else:
+            # Panel switched, default to new panel's leader
+            lead_agent_to_set = [agent_names[0]]
+    # ----------------------------------------
 
     return {
         "lead_agent": lead_agent_to_set,
@@ -584,22 +669,35 @@ def debate_director_router(state: CollaborativeState) -> DebateAction:
         return "CONTINUE_DEBATE"
     return "PRESENT_FINDINGS"
 
-def human_input_decision_edge(
-    state: CollaborativeState,
-) -> Literal["END", "LEAD"]:
+def human_input_decision_edge(state: CollaborativeState) -> Literal["END", "LEAD"]:
     message = state["messages"][-1].content
     if message == "[END]":
         return "END"
-
     return "LEAD"
 
-def create_contributor_executors_edge(state: CollaborativeState):
+def create_contributor_executors_edge(state: CollaborativeState, config: RunnableConfig):
+    # DYNAMIC LOAD
+    agents = get_agents_from_config(config)
+    
+    # SAFETY: Stop execution if agents dictionary is empty
+    if not agents:
+        print("--- ERROR: Agents dictionary is empty. Cannot start contributors. ---")
+        return []
+    
     consolidation_id = str(uuid.uuid4())
-    lead_agent_name = state["lead_agent"][-1] 
-    agents = {agent_name: agent_def for agent_name, agent_def in AGENTS.items() if agent_name != lead_agent_name}
+    
+    # --- SAFETY CHECK FOR PANEL SWITCHING ---
+    if state["lead_agent"] and state["lead_agent"][-1] in agents:
+        lead_agent_name = state["lead_agent"][-1] 
+    else:
+        lead_agent_name = list(agents.keys())[0]
+    # ----------------------------------------
+    
+    # Filter contributors
+    contributors = {name: d for name, d in agents.items() if name != lead_agent_name}
     
     sends = []
-    for agent_name, agent_def in agents.items():
+    for agent_name, agent_def in contributors.items():
         sends.append(
             Send(
                 "contributor_agent_executor",
@@ -610,7 +708,7 @@ def create_contributor_executors_edge(state: CollaborativeState):
                 },
             )
         )
-        time.sleep(2) 
+        time.sleep(0.5) 
         
     return sends
 
@@ -627,8 +725,10 @@ def create_graph() -> Tuple[StateGraph, CompiledStateGraph]:
     workflow.add_node("lead_agent_executor", lead_agent_executor)
     workflow.add_node("debate_director_node", debate_director_node)
     workflow.add_node("consolidate_contributions_node", consolidate_contributions_node)
-
     workflow.add_node("contributor_agent_executor", contributor_agent_executor)
+    
+    # NEW NODE: Final Response
+    workflow.add_node("final_response_node", final_response_node)
 
     workflow.set_entry_point("human_input_received_node")
     workflow.add_conditional_edges(
@@ -644,18 +744,19 @@ def create_graph() -> Tuple[StateGraph, CompiledStateGraph]:
     
     workflow.add_edge("consolidate_contributions_node", "debate_director_node")
     
+    # ROUTING UPDATE: Present Findings -> Final Response Node
     workflow.add_conditional_edges(
         "debate_director_node",
         debate_director_router, 
         {
             "CONTINUE_DEBATE": "lead_agent_executor", 
-            "PRESENT_FINDINGS": "human_input_received_node", 
+            "PRESENT_FINDINGS": "final_response_node", 
         }
     )
+    
+    workflow.add_edge("final_response_node", END)
 
-    graph = workflow.compile(
-        checkpointer=memory, interrupt_before=["human_input_received_node"]
-    )
+    graph = workflow.compile(checkpointer=memory)
 
     return workflow, graph
 
@@ -663,4 +764,3 @@ if __name__ == "__main__":
     # Test execution
     workflow, graph = create_graph()
     print("Graph compiled successfully.")
-    # You can add code here to visualize or invoke the graph
