@@ -15,6 +15,7 @@ load_dotenv()
 # Ensure you have set your API keys
 os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
 os.environ["GOOGLE_API_KEY"] = os.getenv("GOOGLE_API_KEY")
+os.environ["ANTHROPIC_API_KEY"] = os.getenv("ANTHROPIC_API_KEY")
 
 # --- Helper to estimate coffee break time ---
 def get_coffee_break_duration():

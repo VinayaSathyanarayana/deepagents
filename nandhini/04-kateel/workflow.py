@@ -48,7 +48,7 @@ LLMS = {
 # default LLM for the lead agent
 DEFAULT_LEAD_LLM = "gemini" # "openai"
 # default LLM for the contributor agents
-DEFAULT_CONTRIBUTOR_LLM = "gemini" # "openai"
+DEFAULT_CONTRIBUTOR_LLM = "anthropic" # "openai"
 
 # panel to use - see agents/panels/
 AGENTS_SET = "creative_panel"
@@ -593,7 +593,7 @@ def create_contributor_executors_edge(state: CollaborativeState):
             )
         )
         # Synchronous sleep to throttle the concurrent API calls for rate limit compliance (e.g., free tier 10 RPM)
-        time.sleep(1) 
+        time.sleep(2) 
         
     return sends
 
