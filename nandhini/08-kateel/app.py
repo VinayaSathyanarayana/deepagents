@@ -3,7 +3,7 @@ import uuid
 import glob
 import chainlit as cl
 from dotenv import load_dotenv
-from chainlit.input_widget import Select
+from chainlit.input_widget import Select, Slider
 
 # Import graph setup from your workflow file
 from workflow import create_graph
@@ -58,8 +58,9 @@ async def start():
     # Default to the first found panel
     default_panel = panels[0] if panels else "strategy_panel"
     
-    # 3. CREATE THE DROPDOWN (Select Widget)
-    # This adds the dropdown to the "Chat Settings" menu (Gear Icon)
+    # 3. CREATE THE SETTINGS WIDGETS
+    # - Select: Choose the Agent Panel
+    # - Slider: Control the Debate Duration (Safety Limit)
     settings = await cl.ChatSettings(
         [
             Select(
@@ -67,24 +68,35 @@ async def start():
                 label="Select Expert Panel",
                 values=panels,
                 initial_index=0,
+            ),
+            Slider(
+                id="max_debate_rounds",
+                label="Maximum Debate Rounds",
+                initial=2,
+                min=1,
+                max=10,
+                step=1,
+                description="Controls how many times the panel argues before forcing a conclusion."
             )
         ]
     ).send()
 
     # 4. Initialize Configuration
-    # We store the selected panel in the config so the graph can access it
+    # We store the selected panel and debate limit in the config so the graph can access it
     config = {
         "configurable": {
             "thread_id": str(uuid.uuid4()),
-            "panel_name": default_panel
+            "panel_name": default_panel,
+            "max_debate_rounds": 2 # Default value matches the Slider initial
         }
     }
 
     # 5. Welcome Message with Instructions
     await cl.Message(
-        content=f"**Current Panel:** `{default_panel}`\n\n"
-                "👇 **To change the panel:**\n"
-                "Click the **Settings Icon (⚙️)** next to the chat input and use the **Dropdown** menu."
+        content=f"**Current Panel:** `{default_panel}`\n"
+                "**Debate Limit:** `2 Rounds`\n\n"
+                "👇 **To change settings:**\n"
+                "Click the **Settings Icon (⚙️)** next to the chat input to switch panels or adjust debate length."
     ).send()
 
     # 6. Save to session
@@ -95,23 +107,29 @@ async def start():
 @cl.on_settings_update
 async def setup_agent(settings):
     """
-    Handles the user changing the panel via the settings menu.
+    Handles the user changing the panel or slider via the settings menu.
     """
     selected_panel = settings["panel_name"]
+    max_rounds = int(settings["max_debate_rounds"])
     
     # Update the config in the session
     config = cl.user_session.get("config")
     
-    # 1. Update the Panel Name
+    # 1. Update Config Values
     config["configurable"]["panel_name"] = selected_panel
+    config["configurable"]["max_debate_rounds"] = max_rounds
     
-    # 2. Generate a NEW Thread ID to reset memory for the new panel
-    # This is crucial so agents don't get confused by previous conversation history from a different panel
+    # 2. Generate a NEW Thread ID to reset memory for the new panel/settings
     config["configurable"]["thread_id"] = str(uuid.uuid4())
     
     cl.user_session.set("config", config)
     
-    await cl.Message(content=f"✅ **Panel switched to:** `{selected_panel}`.\n\n🔄 **Memory Reset:** The conversation history has been cleared for the new team.").send()
+    await cl.Message(
+        content=f"✅ **Settings Updated:**\n"
+                f"- Panel: `{selected_panel}`\n"
+                f"- Max Rounds: `{max_rounds}`\n\n"
+                f"🔄 **Memory Reset:** The conversation history has been cleared."
+    ).send()
     
 @cl.on_message
 async def on_message(message: cl.Message):
@@ -177,8 +195,10 @@ async def on_message(message: cl.Message):
                 continue 
 
             # Create an empty message placeholder for the agent
-            # Using the agent name as the author
-            ui_message = cl.Message(author=agent_name, content=f"@{agent_name}: ", type="assistant_message")
+            if event["name"] == "contributor_agent_executor":
+                ui_message = cl.Message(author=agent_name, content=f"@{agent_name}: ", type="assistant_message")
+            else:
+                ui_message = cl.Message(author=agent_name, content=f"@{agent_name}: ", type="assistant_message")
             
             # Store message by checkpoint namespace to handle streaming correctly
             ui_messages[event["metadata"]["langgraph_checkpoint_ns"]] = ui_message

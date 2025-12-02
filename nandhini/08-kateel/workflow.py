@@ -613,14 +613,16 @@ async def debate_director_node(state: CollaborativeState, config: RunnableConfig
     lead_agent_def = agents[lead_agent_name]
     
     # ------------------------------------------------------------------
-    # 1. INFINITE LOOP GUARD: FORCE FINDINGS AFTER 2 ROUNDS
+    # 1. INFINITE LOOP GUARD & CONFIGURABLE LIMIT
     # ------------------------------------------------------------------
     # Count how many times this node has run so far in the steps history
     director_steps = [s for s in state["steps"] if s["step"] == "debate_director_node"]
     
-    # If we have already debated twice (current execution would be the 3rd), force stop.
-    if len(director_steps) >= 2:
-        print("--- DEBUG: Max debate rounds reached. Forcing PRESENT_FINDINGS. ---")
+    # CONFIGURABLE: Get max rounds from config (Default: 2)
+    max_rounds = config.get("configurable", {}).get("max_debate_rounds", 2)
+    
+    if len(director_steps) >= max_rounds:
+        print(f"--- DEBUG: Max debate rounds ({max_rounds}) reached. Forcing PRESENT_FINDINGS. ---")
         parsed_decision = "PRESENT_FINDINGS"
         
         # Dispatch event so UI knows (optional)
@@ -878,6 +880,7 @@ def create_contributor_executors_edge(state: CollaborativeState, config: Runnabl
     # LIMIT CONTRIBUTORS TO SAVE TOKENS (OPTIONAL)
     # If using Strategy Panel with 20+ agents, we might want to only activate specialists
     # For now, we activate all, assuming the user filters logic in prompt or via smaller panels.
+    # UNLIMITED VERSION (Run ALL agents):
     
     sends = []
     for agent_name, agent_def in contributors.items():
