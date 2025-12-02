@@ -62,7 +62,12 @@ def load_panel_cached(panel_name: str):
         return {}
 
     agents = {}
-    ignored_keys = ['scoring_rubric', 'sample_evaluation_template', 'total_score', 'evaluation_template']
+    # CRITICAL: Keys to ignore to prevent loader crashes on non-agent blocks in Strategy YAMLs
+    ignored_keys = [
+        'scoring_rubric', 'sample_evaluation_template', 'total_score', 
+        'evaluation_template', 'workflow', 'deliverables_pack', 
+        'governance', 'run_example', 'purpose', 'version', 'workflow_metadata'
+    ]
 
     if data:
         for key, value in data.items():
@@ -105,7 +110,7 @@ openai_llm = ChatOpenAI(model="gpt-4o", temperature=0.7, max_retries=5)
 openai_llm_mini = ChatOpenAI(model="gpt-4o-mini", max_retries=5)
 anthropic_llm = ChatAnthropic(model="claude-3-haiku-20240307", max_retries=5)
 
-# --- UPDATED TO GEMINI-2.5-FLASH AS REQUESTED ---
+# --- USING GEMINI 1.5 FLASH FOR STABILITY & RATE LIMITS ---
 gemini_llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", max_retries=5)
 
 LLMS = {
@@ -318,7 +323,7 @@ class ContributorOutputState(TypedDict):
 def format_participants(participants: {}, exclude: list[str] = []) -> str:
     return "\n".join(
         [
-            f"display_name: {info['display_name']}\nprofile: {info['profile']}"
+            f"display_name: {info.get('display_name', name)}\nprofile: {info.get('profile', 'No profile provided.')}"
             for name, info in participants.items()
             if name not in exclude
         ]
@@ -687,26 +692,34 @@ async def final_response_node(state: CollaborativeState, config: RunnableConfig)
     print("--- EXEC: Final Synthesis ---")
     agents = get_agents_from_config(config)
     
-    # Identify Lead Agent (Safety Check included)
-    if state.get("lead_agent") and state["lead_agent"][-1] in agents:
-        lead_agent_name = state["lead_agent"][-1]
+    # 1. Check if the "FinalJudgementAnalyst" exists in this panel
+    # If so, switch to them for the final write-up.
+    synthesis_agent = "FinalJudgementAnalyst"
+    
+    if synthesis_agent in agents:
+        final_agent_name = synthesis_agent
+        print(f"--- INFO: Switching to specialized synthesis agent: {final_agent_name} ---")
     else:
-        lead_agent_name = list(agents.keys())[0]
+        # Fallback to the current lead agent
+        if state.get("lead_agent") and state["lead_agent"][-1] in agents:
+            final_agent_name = state["lead_agent"][-1]
+        else:
+            final_agent_name = list(agents.keys())[0]
 
-    lead_agent_def = agents[lead_agent_name]
+    agent_def = agents[final_agent_name]
     
     # --- CRITICAL FIX: DISPATCH EVENT SO UI KNOWS TO CREATE A MESSAGE BOX ---
     await adispatch_custom_event(
         "final_response_node", 
-        {"agent_name": lead_agent_name}, 
+        {"agent_name": final_agent_name}, 
         config=config
     )
 
     # Use the Final Response Prompt
-    llm = LLMS[lead_agent_def.get("llm", DEFAULT_LEAD_LLM)]
+    llm = LLMS[agent_def.get("llm", DEFAULT_LEAD_LLM)]
     
     # Bind tools here too, in case final synthesis needs one last check
-    tools = get_agent_tools(lead_agent_def)
+    tools = get_agent_tools(agent_def)
     if tools:
         llm = llm.bind_tools(tools)
 
@@ -717,11 +730,11 @@ async def final_response_node(state: CollaborativeState, config: RunnableConfig)
 
     # --- ADDED config=config FOR STREAMING ---
     response = await chain.ainvoke({
-        "display_name": lead_agent_def["display_name"],
+        "display_name": agent_def["display_name"],
         "messages": clean_messages  # Use sanitized history
     }, config=config)
     
-    response.name = lead_agent_name
+    response.name = final_agent_name
     
     return {
         "messages": [response],
@@ -861,6 +874,10 @@ def create_contributor_executors_edge(state: CollaborativeState, config: Runnabl
     
     # Filter contributors
     contributors = {name: d for name, d in agents.items() if name != lead_agent_name}
+    
+    # LIMIT CONTRIBUTORS TO SAVE TOKENS (OPTIONAL)
+    # If using Strategy Panel with 20+ agents, we might want to only activate specialists
+    # For now, we activate all, assuming the user filters logic in prompt or via smaller panels.
     
     sends = []
     for agent_name, agent_def in contributors.items():

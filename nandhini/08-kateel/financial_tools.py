@@ -29,7 +29,8 @@ def get_financial_statements(ticker: str):
             "Price/Book": info.get("priceToBook"),
             "Debt/Equity": info.get("debtToEquity"),
             "Revenue Growth": info.get("revenueGrowth"),
-            "Profit Margins": info.get("profitMargins")
+            "Profit Margins": info.get("profitMargins"),
+            "Free Cashflow": info.get("freeCashflow")
         }
         return str(data)
     except Exception as e:
@@ -76,11 +77,45 @@ def get_technical_indicators(ticker: str):
     except Exception as e:
         return f"Error calculating indicators: {e}"
 
+# --- NEW STRATEGY TOOLS ---
+
+@tool
+def get_web_search(query: str):
+    """
+    Performs a general web search. 
+    USE THIS for: Market size (TAM/SAM), Industry trends, Competitor features, or general fact-checking.
+    DO NOT use for stock prices.
+    """
+    try:
+        results = DDGS().text(query, max_results=4)
+        if not results:
+             return "No results found."
+        return "\n".join([f"- {r['title']}: {r['body']}" for r in results])
+    except Exception as e:
+        return f"Error performing web search: {e}"
+
+@tool
+def get_company_profile(company_name: str):
+    """
+    Searches for a company's business model, revenue streams, and product lines.
+    Useful for competitive analysis.
+    """
+    try:
+        query = f"{company_name} business model revenue streams products"
+        results = DDGS().text(query, max_results=3)
+        if not results:
+             return "No profile found."
+        return "\n".join([f"- {r['title']}: {r['body']}" for r in results])
+    except Exception as e:
+        return f"Error fetching company profile: {e}"
+
 # Master Dictionary to map YAML strings to actual functions
 TOOL_MAP = {
     "get_stock_prices": get_stock_prices,
     "get_financial_statements": get_financial_statements,
     "get_market_news": get_market_news,
     "get_technical_indicators": get_technical_indicators,
-    "get_social_media_sentiment": get_social_media_sentiment  # <--- NEW TOOL
+    "get_social_media_sentiment": get_social_media_sentiment,
+    "get_web_search": get_web_search,          # <--- NEW
+    "get_company_profile": get_company_profile # <--- NEW
 }

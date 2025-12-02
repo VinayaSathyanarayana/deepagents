@@ -3,12 +3,10 @@ import uuid
 import glob
 import chainlit as cl
 from dotenv import load_dotenv
-
-# 1. IMPORT SELECT WIDGET EXPLICITLY
 from chainlit.input_widget import Select
 
-# Import graph setup
-from workflow import create_graph, CollaborativeState
+# Import graph setup from your workflow file
+from workflow import create_graph
 
 # PDF Processing Library
 from PyPDF2 import PdfReader
@@ -32,15 +30,15 @@ def get_available_panels():
     path = os.path.join("agents", "panels", "*.yaml")
     files = glob.glob(path)
     
-    # Extract filenames without extension (e.g., 'tech_panel', 'finance_panel')
+    # Extract filenames without extension (e.g., 'strategy_panel', 'investment_panel')
     panels = [os.path.basename(f).replace(".yaml", "") for f in files]
     
     # Fallback if no files found
-    return panels if panels else ["abstract_evaluation_panel"]
+    return panels if panels else ["strategy_panel"]
 
 def get_coffee_break_message():
     """Generates the waiting message."""
-    return "☕ The Expert Committee is taking a quick **Coffee Break** to review your input and prepare their contributions..."
+    return "☕ The Expert Committee is convening to deliberate on your request..."
 
 # ==============================================================================
 # CHAINLIT EVENTS
@@ -58,7 +56,7 @@ async def start():
     panels = get_available_panels()
     
     # Default to the first found panel
-    default_panel = panels[0] if panels else "abstract_evaluation_panel"
+    default_panel = panels[0] if panels else "strategy_panel"
     
     # 3. CREATE THE DROPDOWN (Select Widget)
     # This adds the dropdown to the "Chat Settings" menu (Gear Icon)
@@ -107,8 +105,8 @@ async def setup_agent(settings):
     # 1. Update the Panel Name
     config["configurable"]["panel_name"] = selected_panel
     
-    # 2. CRITICAL FIX: Generate a NEW Thread ID
-    # This wipes the previous conversation memory so the new agents start fresh.
+    # 2. Generate a NEW Thread ID to reset memory for the new panel
+    # This is crucial so agents don't get confused by previous conversation history from a different panel
     config["configurable"]["thread_id"] = str(uuid.uuid4())
     
     cl.user_session.set("config", config)
@@ -170,20 +168,17 @@ async def on_message(message: cl.Message):
         config=config, 
         version="v2"
     ):
-        # Handle Custom Events (for UI logic)
+        # Handle Custom Events (for UI logic to create placeholders)
         if event["event"] == "on_custom_event":
             agent_name = event["data"]["agent_name"]
             
-            # Skip internal director logic updates
+            # Skip internal director logic updates from creating UI messages
             if agent_name == "debate_director":
                 continue 
 
             # Create an empty message placeholder for the agent
-            # We add a check to avoid duplicate initializations if needed, but dict overwrite handles it
-            if event["name"] == "contributor_agent_executor":
-                ui_message = cl.Message(author=agent_name, content=f"@{agent_name}: ", type="assistant_message")
-            else:
-                ui_message = cl.Message(author=agent_name, content=f"@{agent_name}: ", type="assistant_message")
+            # Using the agent name as the author
+            ui_message = cl.Message(author=agent_name, content=f"@{agent_name}: ", type="assistant_message")
             
             # Store message by checkpoint namespace to handle streaming correctly
             ui_messages[event["metadata"]["langgraph_checkpoint_ns"]] = ui_message
