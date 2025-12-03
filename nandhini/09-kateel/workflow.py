@@ -41,7 +41,7 @@ CONF_GEMINI_MODELS = [
 
 # --- AGENT BEHAVIOR ---
 CONF_DEFAULT_LEAD_LLM = "gemini"        
-CONF_DEFAULT_CONTRIBUTOR_LLM = "anthropic"
+CONF_DEFAULT_CONTRIBUTOR_LLM = "gemini" # Switched to Gemini for better stability
 CONF_LLM_MAX_RETRIES = 5                
 
 # --- CONTEXT MEMORY ---
@@ -67,7 +67,7 @@ except Exception as e:
     TOOL_MAP = {}
 
 # ==============================================================================
-# 📝 LOGGING HELPER (NEW)
+# 📝 LOGGING HELPER
 # ==============================================================================
 
 def write_session_log(config: RunnableConfig, agent_name: str, content: str, step_type: str = "OUTPUT"):
@@ -76,14 +76,30 @@ def write_session_log(config: RunnableConfig, agent_name: str, content: str, ste
     """
     try:
         log_path = config.get("configurable", {}).get("session_log_path")
-        if not log_path: return 
+        
+        # Fallback: If no path in config, create a default 'debug.log' in current dir
+        if not log_path:
+            log_path = os.path.join(os.getcwd(), "logs", "debug_fallback.log")
 
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        entry = f"\n{'='*60}\n[{timestamp}]  TYPE: {step_type} | AGENT: {agent_name}\n{'-'*60}\n{content}\n{'='*60}\n"
+        
+        # Prepare the log entry
+        entry = f"\n{'='*60}\n"
+        entry += f"[{timestamp}]  TYPE: {step_type} | AGENT: {agent_name}\n"
+        entry += f"{'-'*60}\n"
+        entry += f"{str(content)}\n" # Ensure content is string
+        entry += f"{'='*60}\n"
 
+        # Ensure directory exists
         os.makedirs(os.path.dirname(log_path), exist_ok=True)
+        
+        # Write to file
         with open(log_path, "a", encoding="utf-8") as f:
             f.write(entry)
+            
+        # Console feedback (so you know it's working)
+        print(f"--- LOG SAVED TO: {log_path} ---")
+            
     except Exception as e:
         print(f"--- LOGGING ERROR: {e} ---")
 
@@ -93,23 +109,19 @@ def write_session_log(config: RunnableConfig, agent_name: str, content: str, ste
 
 def extract_and_parse_json(text: str) -> dict:
     text = text.strip()
-    # Try Markdown block first
     markdown_match = re.search(r"```json\s*(.*?)```", text, re.DOTALL)
     if markdown_match:
         text = markdown_match.group(1).strip()
     else:
-        # Fallback to finding first brace
         start_idx = text.find("{")
         if start_idx != -1: text = text[start_idx:]
         else: raise ValueError("No JSON object found")
 
     try:
-        # raw_decode parses only the valid JSON part and ignores trailing text
         decoder = json.JSONDecoder()
         obj, _ = decoder.raw_decode(text)
         return obj
     except json.JSONDecodeError:
-        # Last resort regex
         match = re.search(r"\{.*\}", text, re.DOTALL)
         if match: return json.loads(match.group(0))
         raise
@@ -184,7 +196,7 @@ LLMS = {
 HUMAN = load_human()
 
 # ==============================================================================
-# 4. PROMPTS (Expanded for Readability)
+# 4. PROMPTS (FIXED for "I cannot..." errors)
 # ==============================================================================
 
 contributor_agent_prompt = ChatPromptTemplate.from_messages(
@@ -197,21 +209,31 @@ contributor_agent_prompt = ChatPromptTemplate.from_messages(
             persona: {persona}
             role: {role}
             --------------------------------
-            Your task is to contribute **only when your input is highly relevant**.
             
-            **Response Formats (Choose ONE):**
-            1. **[INTERJECTION]**: Critical correction or info (1 sentence).
-            2. **[OFFER]**: Keyword indicating you can elaborate.
-            3. **[PASS]**: No relevant input.
+            **YOUR BEHAVIORAL GUIDELINES:**
+            
+            1. **DEBATE PHASE (Short & Concise):**
+               If you are discussing, arguing, or planning, you must be BRIEF.
+               Use these tags and keep responses to **1-2 sentences**:
+               - **[INTERJECTION]**: Critical correction/info.
+               - **[OFFER]**: Keyword indicating you can do a task.
+               - **[PASS]**: No input.
+               - **[AGREE]**, **[DISAGREE]**, **[SUPPORT]**, **[CLARIFY]** + @display_name.
 
-            **Expression Tags (Required if interacting):**
-            - **[AGREE]**, **[DISAGREE]**, **[SUPPORT]**, **[CLARIFY]**, **[CONTRAST]**
-            - Always follow tag with @display_name of who you are addressing.
+            2. **EXECUTION PHASE (Detailed Work):**
+               **CRITICAL EXCEPTION:** If you are specifically asked to generate content, write a section, write code, or perform an analysis, you **MUST** ignore the length constraint.
+               Use the tag **[WORK]** and provide the FULL, comprehensive output.
+               
+               Example of Work:
+               [WORK] Here is the detailed analysis based on the request... (followed by full content).
 
             **Participants:**
             {participants}
 
-            If you have tools, use them BEFORE forming your opinion.
+            **INSTRUCTIONS:**
+            - Do not simulate other participants.
+            - If you have tools, use them BEFORE forming your opinion.
+            - If asked to write/create, use [WORK]. If debating, use [INTERJECTION]/[OFFER].
             """,
         ),
         MessagesPlaceholder(variable_name="messages"),
@@ -385,7 +407,7 @@ def sanitize_messages(messages: list[BaseMessage]) -> list[BaseMessage]:
     return clean_messages
 
 # ==============================================================================
-# 7. NODES
+# 7. NODES (With Logging Added)
 # ==============================================================================
 
 async def lead_agent_executor(state: CollaborativeState, config: RunnableConfig):
@@ -412,7 +434,6 @@ async def lead_agent_executor(state: CollaborativeState, config: RunnableConfig)
         "participants": format_participants(agents | {"human": HUMAN}, exclude=[lead_agent_name]),
     }, config=config)
 
-    # Tool Loop
     max_turns = 3
     turn = 0
     while response.tool_calls and turn < max_turns:
