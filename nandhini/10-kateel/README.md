@@ -9,7 +9,22 @@ Aim to support Local LLMs through Ollama
 
 ************************
 
-Case on a CTO of Consulting and Technology Services Firm deciding on Measuring Programmer Productivity in age of GenAI and Vibe coding
+Case on a CTO of Consulting and Technology Services Firm deciding on Measuring Programmer Productivity in age of GenAI
+
+ and Vibe coding
+
+gemini-2.0-flash-lite-001
+
+The model name for Gemini 2.0 Flash-Lite is gemini-2.0-flash-lite-001. This is the latest stable version, optimized for cost efficiency and low latency, with a one million token context window. 
+Model name: gemini-2.0-flash-lite-001
+Description: A cost-efficient and low-latency model with a 1 million token context window.
+
+The model name for Gemini 2.0 Flash Live is gemini-2.0-flash-live-001. This code identifies the specific version of the Gemini 2.0 Flash model designed for live, bidirectional streaming interactions. 
+Model Code: gemini-2.0-flash-live-001
+Status: Generally available
+Purpose: This model is built for real-time multimodal applications that use streaming audio and video, allowing for natural, conversational interactions.
+Capabilities: It supports a wide range of inputs like audio, video, and text, and can perform tasks such as code execution and Google search grounding
+
 
 ##############################
 

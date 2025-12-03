@@ -27,43 +27,60 @@ from langgraph.graph.state import CompiledStateGraph
 load_dotenv()
 
 # ==============================================================================
-# 🧠 INTELLIGENT MODEL CONFIGURATION
+# 🧠 ADAPTIVE MODEL CONFIGURATION
 # ==============================================================================
 
-# Define capabilities and limits per model family
 MODEL_SPECS = {
     "gemini": {
-        "context_depth": 50,       # Gemini has massive context (1M+ tokens), can read far back
-        "listen_depth": 10,        # Can pay attention to many recent turns
-        "recursion_limit": 1500,   # High limit for long, complex plans
-        "max_retries": 10,         # Google API can be rate-limited, retry more
+        "context_depth": 50,
+        "listen_depth": 10,
+        "recursion_limit": 1500,
         "description": "High context, fast, good for massive data analysis."
     },
     "openai": {
-        "context_depth": 20,       # Standard context (128k)
+        "context_depth": 20,
         "listen_depth": 5,
         "recursion_limit": 1000,
-        "max_retries": 5,
         "description": "Balanced, high reasoning capability."
     },
     "anthropic": {
-        "context_depth": 30,       # Large context (200k)
+        "context_depth": 30,
         "listen_depth": 8,
         "recursion_limit": 1000,
-        "max_retries": 5,
         "description": "Excellent instruction following and coding."
     },
     "ollama": {
-        "context_depth": 8,        # LOCAL: Keep small to save RAM and avoid crashes
-        "listen_depth": 3,         # Only listen to very recent messages
-        "recursion_limit": 500,    # Lower limit to prevent overheating/hanging
-        "max_retries": 2,          # If local fails, it likely won't fix itself instantly
+        "context_depth": 8,
+        "listen_depth": 3,
+        "recursion_limit": 500,
         "description": "Local execution. Private but resource-constrained."
     }
 }
 
-# Default Fallback
-DEFAULT_SPEC = MODEL_SPECS["gemini"]
+# --- GLOBAL SETTINGS ---
+CONF_MODEL_OPENAI = "gpt-4o"
+CONF_MODEL_OPENAI_MINI = "gpt-4o-mini"
+CONF_MODEL_ANTHROPIC = "claude-3-haiku-20240307"
+
+CONF_GEMINI_MODELS = [
+#    "gemini-2.0-flash-live-001",
+    "gemini-2.0-flash-lite-001",
+    "gemini-2.5-flash",
+    "gemini-2.0-flash-exp",
+    "gemini-1.5-flash"
+]
+
+CONF_MODEL_OLLAMA = "llama3.1"
+CONF_OLLAMA_BASE_URL = "http://localhost:11434"
+
+CONF_DEFAULT_LEAD_LLM = "gemini"        
+CONF_DEFAULT_CONTRIBUTOR_LLM = "gemini" 
+CONF_LLM_MAX_RETRIES = 5                
+
+CONF_LEAD_READ_DEPTH = 15               
+CONF_CONTRIBUTOR_READ_DEPTH = 8         
+CONF_LEAD_LISTEN_DEPTH = 5              
+CONF_CONTRIBUTOR_LISTEN_DEPTH = 2       
 
 # ==============================================================================
 # 0. SAFETY & IMPORTS
@@ -82,28 +99,20 @@ except Exception as e:
     TOOL_MAP = {}
 
 # ==============================================================================
-# 1. HELPER FUNCTIONS
+# 1. HELPERS
 # ==============================================================================
 
 def get_current_model_spec(config: RunnableConfig) -> dict:
-    """
-    Dynamically retrieves the correct limits based on the active model provider.
-    """
-    # We infer the provider from the 'configurable' config passed at runtime
-    # or default to the lead agent's LLM string if explicitly set.
-    
-    # Try to find which provider is active (this logic can be refined based on how you set config)
-    # For now, we default to checking a 'provider' key or falling back to 'gemini'
+    """Dynamically retrieves the correct limits based on the active model provider."""
     provider = config.get("configurable", {}).get("active_provider", "gemini")
     
-    # Normalize provider string (e.g., 'gemini-1.5' -> 'gemini')
     if "gemini" in provider: key = "gemini"
     elif "gpt" in provider or "openai" in provider: key = "openai"
     elif "claude" in provider or "anthropic" in provider: key = "anthropic"
     elif "llama" in provider or "mistral" in provider or "ollama" in provider: key = "ollama"
-    else: key = "gemini" # Default
+    else: key = "gemini"
     
-    return MODEL_SPECS.get(key, DEFAULT_SPEC)
+    return MODEL_SPECS.get(key, MODEL_SPECS["gemini"])
 
 def write_session_log(config: RunnableConfig, agent_name: str, content: str, step_type: str = "OUTPUT"):
     try:
@@ -183,31 +192,39 @@ def get_agents_from_config(config: RunnableConfig) -> Dict[str, Any]:
 # 3. LLM INITIALIZATION
 # ==============================================================================
 
-# Initialize all potentially needed providers
-openai_llm = None
-anthropic_llm = None
-gemini_llm = None
-ollama_llm = None
-
 try:
-    openai_llm = ChatOpenAI(model="gpt-4o", temperature=0.7)
-    anthropic_llm = ChatAnthropic(model="claude-3-haiku-20240307")
-except: pass
-
-# Gemini Load
-try:
-    gemini_llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", max_retries=5)
+    openai_llm = ChatOpenAI(model=CONF_MODEL_OPENAI, temperature=0.7, max_retries=CONF_LLM_MAX_RETRIES)
+    openai_llm_mini = ChatOpenAI(model=CONF_MODEL_OPENAI_MINI, max_retries=CONF_LLM_MAX_RETRIES)
+    anthropic_llm = ChatAnthropic(model=CONF_MODEL_ANTHROPIC, max_retries=CONF_LLM_MAX_RETRIES)
 except:
-    try: gemini_llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", max_retries=5)
-    except: pass
+    openai_llm = None
+    anthropic_llm = None
 
-# Ollama Load
+gemini_llm = None
+for model_name in CONF_GEMINI_MODELS:
+    try:
+        gemini_llm = ChatGoogleGenerativeAI(model=model_name, max_retries=CONF_LLM_MAX_RETRIES)
+        print(f"--- INFO: Successfully loaded Gemini model: {model_name} ---")
+        break
+    except Exception:
+        continue
+
+ollama_llm = None
 try:
-    ollama_llm = ChatOllama(model="llama3.1", base_url="http://localhost:11434", temperature=0.1, num_ctx=8192)
-except: pass
+    print(f"--- INFO: Attempting to connect to Ollama ({CONF_MODEL_OLLAMA}) ---")
+    ollama_llm = ChatOllama(
+        model=CONF_MODEL_OLLAMA,
+        base_url=CONF_OLLAMA_BASE_URL,
+        temperature=0.1,
+        num_ctx=8192
+    )
+    print(f"--- INFO: Successfully loaded Ollama model: {CONF_MODEL_OLLAMA} ---")
+except Exception as e:
+    print(f"--- WARNING: Ollama connection failed: {e} ---")
 
 LLMS = {
     "openai": openai_llm,
+    "openai_mini": openai_llm_mini,
     "anthropic": anthropic_llm,
     "gemini": gemini_llm, 
     "ollama": ollama_llm
@@ -216,7 +233,7 @@ LLMS = {
 HUMAN = load_human()
 
 # ==============================================================================
-# 4. PROMPTS
+# 4. PROMPTS (FIXED for Deadlocks & JSON Errors)
 # ==============================================================================
 
 contributor_agent_prompt = ChatPromptTemplate.from_messages(
@@ -229,12 +246,31 @@ contributor_agent_prompt = ChatPromptTemplate.from_messages(
             persona: {persona}
             role: {role}
             --------------------------------
-            **BEHAVIORAL GUIDELINES:**
-            1. **DEBATE PHASE:** Be BRIEF (1-2 sentences). Use tags: [INTERJECTION], [OFFER], [PASS], [AGREE], [DISAGREE].
-            2. **EXECUTION PHASE:** If asked to generate content/code, ignore brevity. Use tag **[WORK]** and provide FULL output.
+            
+            **YOUR BEHAVIORAL GUIDELINES:**
+            
+            1. **DEBATE PHASE (Short & Concise):**
+               If you are discussing, arguing, or planning, you must be BRIEF.
+               Use these tags and keep responses to **1-2 sentences**:
+               - **[INTERJECTION]**: Critical correction/info.
+               - **[OFFER]**: Keyword indicating you can do a task.
+               - **[PASS]**: No input.
+               - **[AGREE]**, **[DISAGREE]**, **[SUPPORT]**, **[CLARIFY]** + @display_name.
 
-            **Participants:** {participants}
-            **Instructions:** Do not simulate others. Use tools BEFORE forming opinions.
+            2. **EXECUTION PHASE (Detailed Work):**
+               **CRITICAL EXCEPTION:** If you are specifically asked to generate content, write a section, write code, or perform an analysis, you **MUST** ignore the length constraint.
+               Use the tag **[WORK]** and provide the FULL, comprehensive output.
+               
+               Example of Work:
+               [WORK] Here is the detailed analysis based on the request... (followed by full content).
+
+            **Participants:**
+            {participants}
+
+            **INSTRUCTIONS:**
+            - Do not simulate other participants.
+            - If you have tools, use them BEFORE forming your opinion.
+            - If asked to write/create, use [WORK]. If debating, use [INTERJECTION]/[OFFER].
             """,
         ),
         MessagesPlaceholder(variable_name="messages"),
@@ -250,11 +286,17 @@ lead_agent_prompt = ChatPromptTemplate.from_messages(
             Persona: {persona}
             Role: {role}
             --------------------------------
-            1. **Engage @human**: Clear, concise.
-            2. **Manage Panel**: Utilize: {participants}
-            3. **Refine Consensus**: Resolve disagreements.
             
-            If executing a Plan Step, stay focused ONLY on that step.
+            **YOUR GOAL:** Drive the project to completion.
+            
+            **CRITICAL RULES:**
+            1. **NEVER SAY "I WILL WAIT".** You are the engine. If tasks are defined, you must say: "We will now execute step X."
+            2. **Manage the Panel:** Call upon or synthesize insights from: {participants}
+            3. **Refine Consensus:** Resolve disagreements from the debate phase.
+            
+            **Context Awareness**:
+            If executing a Plan Step, do NOT summarize the whole project again. 
+            Immediately invoke the specific specialist required for that step by asking them a direct question.
             """,
         ),
         MessagesPlaceholder(variable_name="messages"),
@@ -262,15 +304,71 @@ lead_agent_prompt = ChatPromptTemplate.from_messages(
 )
 
 debate_director_prompt = ChatPromptTemplate.from_messages(
-    [("system", "Debate Director. Analyze conversation. Decide next step: CONTINUE_DEBATE or PRESENT_FINDINGS. Output ONLY the keyword."), MessagesPlaceholder(variable_name="messages")]
+    [
+        (
+            "system", 
+            """You are the Debate Director.
+            Analyze the recent conversation.
+            
+            Decide the next step:
+            1. **CONTINUE_DEBATE**: If there is disagreement or the topic needs deeper exploration.
+            2. **PRESENT_FINDINGS**: If consensus is reached or the current plan step is complete.
+
+            Output **ONLY** the keyword: CONTINUE_DEBATE or PRESENT_FINDINGS.
+            """
+        ),
+        MessagesPlaceholder(variable_name="messages"),
+    ]
 )
 
 planner_prompt = ChatPromptTemplate.from_messages(
-    [("system", "Strategic Planner. Context: {context_summary}\nDetermine if request needs multi-step plan.\nOUTPUT STRICT JSON ONLY: {{ \"rationale\": \"...\", \"steps\": [\"Step 1\", \"Step 2\"] }}\nIf simple, return: {{ \"steps\": [] }}"), MessagesPlaceholder(variable_name="messages")]
+    [
+        (
+            "system",
+            """You are the Strategic Planner.
+            Context: {context_summary}
+            
+            **YOUR TASK:**
+            Analyze the Lead Agent's last message. 
+            - Did they list "Next Steps", "Action Items", or assign tasks to specific agents? 
+            - If YES, convert those text assignments into a structured JSON execution plan immediately.
+            - Do NOT return an empty plan if work remains to be done.
+            - Do NOT start your response with "Here is the JSON". Start with {{.
+            
+            **Output Format (STRICT JSON ONLY):**
+            {{
+                "rationale": "The Orchestrator assigned 3 tasks...",
+                "steps": [
+                    "Step 1: Ask @DataExhibitCurator to create exhibits...", 
+                    "Step 2: Ask @BusinessImpactAnalyst for analysis...",
+                    "Step 3: ..."
+                ]
+            }}
+            
+            If the user's request is completely satisfied and NO work remains, return: {{ "steps": [] }}
+            """
+        ),
+        MessagesPlaceholder(variable_name="messages"),
+    ]
 )
 
 final_response_prompt = ChatPromptTemplate.from_messages(
-    [("system", "Lead Agent: {display_name}.\n**Task Results:** {task_results}\nSynthesize info. Write final response to @human. No tags."), MessagesPlaceholder(variable_name="messages")]
+    [
+        (
+            "system",
+            """You are the Lead Agent: {display_name}.
+            
+            **Task Results (From Executed Plan):**
+            {task_results}
+            
+            **Instructions:**
+            - Synthesize all information (History + Task Results).
+            - Write the final, comprehensive response to the @human.
+            - Do not use [OFFER] or [INTERJECTION] tags here. Just write professionally.
+            """
+        ),
+        MessagesPlaceholder(variable_name="messages"),
+    ]
 )
 
 # ==============================================================================
@@ -306,7 +404,7 @@ class ContributorOutputState(TypedDict):
     contributions: Annotated[list[BaseMessage], reduce_fanouts]
 
 # ==============================================================================
-# 6. DYNAMIC CONTEXT HELPERS
+# 6. HELPER FUNCTIONS
 # ==============================================================================
 
 def format_participants(participants: {}, exclude: list[str] = []) -> str:
@@ -317,13 +415,9 @@ def format_contributions(contributions: list[BaseMessage]) -> str:
     return f"\nOther participants' opinions:\n================\n{s}\n================\n"
 
 def get_step_messages(state: CollaborativeState, lead_agent_name: str, config: RunnableConfig) -> list[BaseMessage]:
-    """
-    Dynamically fetches messages based on the ACTIVE MODEL's context window.
-    """
-    # 1. Get specs for current model
     specs = get_current_model_spec(config)
-    read_depth = specs["context_depth"]
-    listen_depth = specs["listen_depth"]
+    read_depth = specs.get("context_depth", CONF_LEAD_READ_DEPTH)
+    listen_depth = specs.get("listen_depth", CONF_LEAD_LISTEN_DEPTH)
     
     agent_contributions_last = read_depth
     listen_last = listen_depth
@@ -359,6 +453,7 @@ def sanitize_messages(messages: list[BaseMessage]) -> list[BaseMessage]:
                     text_content += part.get("text", "")
                 elif isinstance(part, dict) and part.get("type") == "tool_use":
                     text_content += f"\n[Tool Call: {part.get('name')}]"
+            
             if isinstance(msg, AIMessage): new_msg = AIMessage(content=text_content, name=msg.name if hasattr(msg, 'name') else 'assistant')
             elif isinstance(msg, HumanMessage): new_msg = HumanMessage(content=text_content, name=msg.name if hasattr(msg, 'name') else 'user')
             else: new_msg = AIMessage(content=str(text_content))
@@ -368,7 +463,7 @@ def sanitize_messages(messages: list[BaseMessage]) -> list[BaseMessage]:
     return clean_messages
 
 # ==============================================================================
-# 7. NODES (With Dynamic Model Config)
+# 7. NODES
 # ==============================================================================
 
 async def lead_agent_executor(state: CollaborativeState, config: RunnableConfig):
@@ -378,26 +473,15 @@ async def lead_agent_executor(state: CollaborativeState, config: RunnableConfig)
 
     await adispatch_custom_event("lead_agent_executor", {"agent_name": lead_agent_name}, config=config)
     
-    # Dynamic Model Selection
-    specs = get_current_model_spec(config)
-    # We prefer the specific agent's configured LLM, but if it's set to "default" or missing, 
-    # we use the active_provider from app.py
     provider_key = config.get("configurable", {}).get("active_provider", "gemini")
-    
-    # Map 'gemini' -> gemini_llm object, etc.
     llm = LLMS.get(provider_key, LLMS["gemini"]) 
-    
-    if not llm: raise ValueError(f"LLM for provider '{provider_key}' not initialized.")
+    if not llm: llm = LLMS["ollama"]
 
-    # Bind tools
     tools = get_agent_tools(lead_agent_def)
     if tools: llm = llm.bind_tools(tools)
     
     chain = lead_agent_prompt | llm
-    
-    # Get dynamic context messages
-    messages = get_step_messages(state, lead_agent_name, config)
-    messages = sanitize_messages(messages)
+    messages = sanitize_messages(get_step_messages(state, lead_agent_name, config))
 
     response = await chain.ainvoke({
         "name": lead_agent_name, "display_name": lead_agent_def["display_name"], "persona": lead_agent_def["persona"],
@@ -405,7 +489,6 @@ async def lead_agent_executor(state: CollaborativeState, config: RunnableConfig)
         "participants": format_participants(agents | {"human": HUMAN}, exclude=[lead_agent_name]),
     }, config=config)
 
-    # Tool Loop
     max_turns = 3
     turn = 0
     while response.tool_calls and turn < max_turns:
@@ -434,9 +517,9 @@ async def contributor_agent_executor(state: ContributorInputState, config: Runna
     
     await adispatch_custom_event("contributor_agent_executor", {"agent_name": state["agent_name"]}, config=config)
     
-    # Use active provider
     provider_key = config.get("configurable", {}).get("active_provider", "gemini")
     llm = LLMS.get(provider_key, LLMS["gemini"])
+    if not llm: llm = LLMS["ollama"]
     
     tools = get_agent_tools(agent_info)
     if tools: llm = llm.bind_tools(tools)
@@ -485,10 +568,9 @@ async def debate_director_node(state: CollaborativeState, config: RunnableConfig
     else:
         await adispatch_custom_event("debate_director_node", {"agent_name": lead_name}, config=config)
         provider_key = config.get("configurable", {}).get("active_provider", "gemini")
-        llm = LLMS.get(provider_key, LLMS["gemini"])
-
+        llm = LLMS.get(provider_key, LLMS["gemini"]) 
+        
         chain = debate_director_prompt | llm
-        # Using lead_name here, but we pass config to get_step_messages so it uses the right depth
         messages = sanitize_messages(get_step_messages(state, lead_name, config)) 
         response = await chain.ainvoke({"messages": messages}, config=config)
         parsed_decision = "CONTINUE_DEBATE" if "CONTINUE_DEBATE" in response.content else "PRESENT_FINDINGS"
@@ -497,15 +579,20 @@ async def debate_director_node(state: CollaborativeState, config: RunnableConfig
     msg = AIMessage(content=parsed_decision, name="debate_director")
     return {"steps": [{"id": str(uuid.uuid4()), "step": "debate_director_node", "messages": [msg], "category": "lead", "decision": parsed_decision}], "messages": [msg]}
 
+# --- FIXED PLANNING NODE: ROBUST FALLBACK ---
 async def planning_node(state: CollaborativeState, config: RunnableConfig) -> dict:
     print("--- EXEC: Planning Node ---")
     await adispatch_custom_event("planning_node", {"agent_name": "Planner"}, config=config)
 
+    # 1. Get Context
     last_lead_msg = next((s["messages"][-1] for s in reversed(state["steps"]) if s["category"] == "lead"), None)
+    
+    # 2. Accumulate Results
     task_results_update = []
     if state.get("current_step_index") is not None and last_lead_msg:
         task_results_update.append(f"Result of Step {state['current_step_index'] + 1}: {last_lead_msg.content}")
 
+    # 3. Determine Plan State
     current_plan = state.get("plan")
     current_index = state.get("current_step_index")
 
@@ -523,15 +610,44 @@ async def planning_node(state: CollaborativeState, config: RunnableConfig) -> di
             print(f"--- PLAN GENERATED: {len(current_plan)} steps ---")
             
             write_session_log(config, "Planner", f"Generated Plan:\n{json.dumps(current_plan, indent=2)}", step_type="PLANNING")
+            
+            # --- SAFETY NET 1: MENTION TRIGGER ---
+            if not current_plan and last_lead_msg and "@" in last_lead_msg.content:
+                mentioned_agent = re.search(r"@(\w+)", last_lead_msg.content)
+                if mentioned_agent:
+                    agent_name = mentioned_agent.group(1)
+                    if agent_name != last_lead_msg.name:
+                        forced_step = f"Handoff to {agent_name}: Execute the request found in the last message."
+                        current_plan = [forced_step]
+                        print(f"--- SAFETY NET 1: Forced Plan for {agent_name} ---")
+            
             current_index = 0
         except Exception as e:
             print(f"--- PLANNER ERROR: {e} ---")
-            current_plan = ["Analyze and answer the user's request comprehensively"]
+            
+            # --- SAFETY NET 2: TEXT PARSING FALLBACK ---
+            # If JSON failed, try to read the raw text for numbered steps (1. Do X, 2. Do Y)
+            try:
+                raw_text = response.content
+                lines = [line.strip() for line in raw_text.split('\n') if line.strip()]
+                # Find lines starting with a number or bullet point
+                extracted_steps = [l for l in lines if l[0].isdigit() or l.startswith('-') or l.startswith('*')]
+                if len(extracted_steps) > 0:
+                    current_plan = extracted_steps
+                    print(f"--- SAFETY NET 2: Extracted {len(current_plan)} steps from text ---")
+                else:
+                    raise ValueError("No steps found in text.")
+            except:
+                # Ultimate fallback
+                current_plan = ["Analyze and answer the user's request comprehensively"]
+            
             current_index = 0
 
     else:
+        # Advance Step
         if current_index is not None: current_index += 1
 
+    # 4. Execute or Finish
     if current_plan and current_index is not None and current_index < len(current_plan):
         next_step = current_plan[current_index]
         print(f"--- EXEC STEP {current_index+1}: {next_step} ---")
@@ -552,6 +668,7 @@ async def final_response_node(state: CollaborativeState, config: RunnableConfig)
     agent_def = agents.get(final_agent) or list(agents.values())[0]
     
     await adispatch_custom_event("final_response_node", {"agent_name": final_agent}, config=config)
+    
     provider_key = config.get("configurable", {}).get("active_provider", "gemini")
     llm = LLMS.get(provider_key, LLMS["gemini"])
 
@@ -602,16 +719,28 @@ def create_contributor_executors_edge(state: CollaborativeState, config: Runnabl
     cid = str(uuid.uuid4())
     sends = []
     
-    # Get dynamic listen depth
-    specs = get_current_model_spec(config)
-    # We pass 'config' to get_step_messages inside the node, but here we just need to send data
-    # Ideally we'd calculate depth here too, but to keep edge simple we use the default
-    # or re-fetch specs.
-    
-    for k, v in contributors.items():
+    # --- SMART ROUTING LOGIC ---
+    last_step = state["steps"][-1]
+    if last_step["category"] == "lead" and last_step["messages"]:
+        last_message = last_step["messages"][-1].content
+    else:
+        last_message = ""
+
+    target_agents = []
+    for agent_name in contributors.keys():
+        if f"@{agent_name}" in last_message:
+            target_agents.append(agent_name)
+            
+    if target_agents:
+        print(f"--- ROUTING: Targeted dispatch to {target_agents} ---")
+        active_contributors = {k: v for k, v in contributors.items() if k in target_agents}
+    else:
+        active_contributors = contributors
+
+    for k, v in active_contributors.items():
         sends.append(Send("contributor_agent_executor", {
             "consolidation_id": cid, "agent_name": k,
-            "messages": get_step_messages(state, k, config) # This function now handles config!
+            "messages": get_step_messages(state, k, config)
         }))
     return sends
 
