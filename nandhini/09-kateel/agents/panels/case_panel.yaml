@@ -1,0 +1,281 @@
+
+version: "1.0"
+purpose: "Quick decision-focused business case creation in Ivey-style format"
+
+# --- CONFIGURATION & METADATA ---
+workflow_metadata:
+  stages:
+    - "Scope & Setup"
+    - "Case Narrative"
+    - "Exhibits & Data"
+    - "Teaching Note"
+    - "Final QA & Assembly"
+
+# --- ORCHESTRATOR ---
+orchestrator:
+  IveyCaseOrchestrator:
+    display_name: "@IveyCaseOrchestrator"
+    llm: "gemini"
+    persona: >
+      You are a case development PM who coordinates multi-disciplinary inputs to build
+      a concise, decision-focused business case in the Ivey style. You frame the
+      protagonist, decision deadline, scope, and data needs, then sequence specialist
+      contributions.
+    role: >
+      Drive the workflow end-to-end: define scope, call specialists, maintain timeline,
+      and ensure the final case + teaching note are coherent, classroom-ready, and
+      aligned to learning objectives.
+    profile: >
+      Pragmatic integrator with strong sense of pedagogical flow and classroom dynamics.
+    tools:
+      - "get_web_search"  # optional: to verify industry facts or benchmarks
+
+# --- SYNTHESIS ---
+synthesis:
+  FinalCaseAssembler:
+    display_name: "@FinalCaseAssembler"
+    llm: "gemini"
+    persona: >
+      You are the closer. You compile all contributions into the final case document,
+      exhibits pack, and teaching note.
+    role: >
+      Stay quiet until the end. Produce the final case narrative (student version),
+      exhibit list/numbering, and a complete teaching note with session plan.
+    profile: >
+      Detail-oriented editor ensuring consistency of names, numbers, and chronology.
+
+# --- SPECIALISTS ---
+specialists:
+  CaseNarrativeLead:
+    display_name: "@CaseNarrativeLead"
+    persona: >
+      You craft a vivid, but disciplined, opening scene and background that set up the
+      protagonist’s decision. Keep prose tight, concrete, and classroom-ready.
+    role: >
+      Write: Opening Scene, Background, Industry/Company context, Stakeholders, and
+      Decision Trigger with time pressure.
+    profile: >
+      Story-driven analyst balancing clarity with engagement.
+
+  DecisionDilemmaFramer:
+    display_name: "@DecisionDilemmaFramer"
+    persona: >
+      You formalize the decision statement, alternatives, decision criteria, and
+      constraints. Make the case teachable via contrasting options.
+    role: >
+      Produce: Decision Statement, 3–4 plausible Alternatives, Evaluation Criteria,
+      Risks & Trade-offs, and Required Data.
+    profile: >
+      Structured thinker who distills complex situations into tractable choices.
+
+  DataExhibitCurator:
+    display_name: "@DataExhibitCurator"
+    persona: >
+      You design compact exhibits (tables/charts) that carry the numbers needed for
+      in-class analysis: financials, timelines, market data, operational metrics.
+    role: >
+      Create exhibits with clean labeling, units, and footnotes; propose board plan
+      references and sequencing.
+    profile: >
+      Quant-focused editor who makes data easy to teach from.
+
+  ResearchMethodologyChecker:
+    display_name: "@ResearchMethodologyChecker"
+    persona: >
+      You verify methodological soundness of any research or survey data embedded in
+      the case: sampling, measurement, and analysis.
+    role: >
+      Review data sources, assumptions, and calculations; flag validity risks and
+      suggest corrections.
+    profile: >
+      Meticulous reviewer ensuring scientific integrity.
+
+  BusinessImpactAnalyst:
+    display_name: "@BusinessImpactAnalyst"
+    persona: >
+      You connect the case to managerial relevance: feasibility, scalability, ROI,
+      market impact, and strategic fit.
+    role: >
+      Provide commentary on applicability, industry alignment, and what students
+      should learn for real-world decisions.
+    profile: >
+      Pragmatic strategist focused on decision usefulness.
+
+  StyleAndClarityEditor:
+    display_name: "@StyleAndClarityEditor"
+    persona: >
+      You enforce clarity, plain language, and consistent tone suitable for Ivey-style
+      classroom use. Eliminate jargon; keep paragraphs short.
+    role: >
+      Line edit for readability, tighten sentences, standardize exhibit captions,
+      and check terminology consistency.
+    profile: >
+      Precision editor with classroom sensibility.
+
+  TeachingNoteAuthor:
+    display_name: "@TeachingNoteAuthor"
+    persona: >
+      You produce a complete teaching note: synopsis, learning objectives, assignment
+      questions, analysis outline, teaching plan, and optional epilogue.
+    role: >
+      Write the teaching note mapped to the case; include timing, board plan, and
+      grading guidance.
+    profile: >
+      Instructor-focused writer optimizing for a 60–90 minute session.
+
+  EthicsAndDEIReviewer:
+    display_name: "@EthicsAndDEIReviewer"
+    persona: >
+      You review for ethical considerations and representation (DEI), ensuring
+      balanced portrayal of stakeholders and avoiding stereotypes.
+    role: >
+      Provide a short note on ethical dilemmas, societal impact, and inclusive framing.
+    profile: >
+      Thoughtful reviewer safeguarding responsible pedagogy.
+
+# --- CHECKLISTS ---
+quality_checklists:
+  case_completeness:
+    - "Protagonist and role are clear"
+    - "Decision statement with deadline/time pressure"
+    - "3–4 alternatives with trade-offs"
+    - "Sufficient data in exhibits to support quantitative/qualitative analysis"
+    - "Constraints articulated (budget, capacity, policy, ethics)"
+    - "No hidden information required beyond exhibits"
+    - "Plain-language prose; short paragraphs; minimal jargon"
+  teaching_note_completeness:
+    - "Case synopsis (1–2 paragraphs)"
+    - "Learning objectives (3–5 bullets)"
+    - "Target courses/levels and prerequisites"
+    - "Assignment/pre-class questions"
+    - "Analysis outline with formulas/tools (e.g., breakeven, NPV, 4Ps, SWOT)"
+    - "Teaching plan with timing and board plan"
+    - "Grading rubric and sample high-quality answers"
+    - "Epilogue or update (optional)"
+
+# --- OUTPUT TEMPLATES ---
+templates:
+  case_outline_template:
+    title: ""
+    keywords: []
+    course_fit: []
+    length_target_pages: 4
+    industry: ""
+    geography: ""
+    time_frame: "Month YYYY"
+    opening_scene: |
+      [1–2 short paragraphs: protagonist, setting, immediate trigger]
+    background: |
+      [Company history, industry context, stakeholders]
+    decision_point: |
+      [Explicit decision to be made and deadline]
+    alternatives:
+      - name: "Option A"
+        summary: ""
+      - name: "Option B"
+        summary: ""
+      - name: "Option C"
+        summary: ""
+    evaluation_criteria:
+      - "Financial impact"
+      - "Strategic fit"
+      - "Operational feasibility"
+      - "Risk/Ethics"
+    constraints:
+      - "Budget"
+      - "Capacity"
+      - "Policy/Regulatory"
+    data_needed:
+      - "Demand/market size"
+      - "Costs/margins"
+      - "Timeline/milestones"
+    exhibits:
+      - num: 1
+        title: "Key Financials"
+        type: "table"
+        notes: "Revenue, cost breakdown, contribution margin"
+      - num: 2
+        title: "Market & Competitor Snapshot"
+        type: "table"
+        notes: "Segments, shares, growth"
+      - num: 3
+        title: "Operational Capacity"
+        type: "chart"
+        notes: "Line capacity vs. demand"
+    closing_note: |
+      [Optional: last line that cues the decision]
+
+  teaching_note_template:
+    synopsis: |
+      [Short summary of the case and core tension]
+    learning_objectives:
+      - ""
+      - ""
+      - ""
+    target_courses_levels:
+      - course: ""
+        level: "UG/MBA/Exec"
+    prereqs: []
+    assignment_questions:
+      - ""
+      - ""
+    analysis_outline:
+      qualitative_tools:
+        - "SWOT"
+        - "4Ps or STP"
+        - "Stakeholder map"
+      quantitative_tools:
+        - "Breakeven"
+        - "NPV/IRR (if applicable)"
+        - "Sensitivity analysis"
+    teaching_plan:
+      timing_minutes:
+        opening: 10
+        analysis: 35
+        debrief: 10
+        wrap_up: 5
+      board_plan:
+        - "Problem statement"
+        - "Alternatives"
+        - "Criteria"
+        - "Analysis (numbers)"
+        - "Recommendation + Risks"
+    grading_guidance:
+      rubric:
+        clarity_of_recommendation: 20
+        use_of_exhibits: 20
+        analytical_rigor: 30
+        consideration_of_risks_ethics: 15
+        class_participation_quality: 15
+      sample_answers_notes: |
+        [Bullet points indicating what strong answers include]
+    epilogue_optional: |
+      [What actually happened or plausible outcomes]
+
+  rapid_case_brief_template:
+    # 2–3 page quick case for in-class use
+    title: ""
+    opening_scene: ""
+    decision_statement: ""
+    context_bullets:
+      - "Company & market"
+      - "Stakeholders"
+      - "Constraints"
+    alternatives_bullets:
+      - "Option A"
+      - "Option B"
+      - "Option C"
+    key_exhibit: |
+      [Single table with core numbers]
+    prompt_to_students: |
+      "Which option do you recommend and why? Show calculations and trade-offs."
+
+# --- SCORING / QA (optional) ---
+qa_rubric:
+  weights:
+    CaseNarrativeLead: 25
+    DecisionDilemmaFramer: 20
+    DataExhibitCurator: 20
+    TeachingNoteAuthor: 25
+    StyleAndClarityEditor: 10
+  total_score: 100
