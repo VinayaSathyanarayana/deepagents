@@ -103,7 +103,6 @@ except Exception as e:
 # ==============================================================================
 
 def get_current_model_spec(config: RunnableConfig) -> dict:
-    """Dynamically retrieves the correct limits based on the active model provider."""
     provider = config.get("configurable", {}).get("active_provider", "gemini")
     
     if "gemini" in provider: key = "gemini"
@@ -233,7 +232,7 @@ LLMS = {
 HUMAN = load_human()
 
 # ==============================================================================
-# 4. PROMPTS (FIXED for Deadlocks & JSON Errors)
+# 4. PROMPTS
 # ==============================================================================
 
 contributor_agent_prompt = ChatPromptTemplate.from_messages(
@@ -246,31 +245,12 @@ contributor_agent_prompt = ChatPromptTemplate.from_messages(
             persona: {persona}
             role: {role}
             --------------------------------
-            
-            **YOUR BEHAVIORAL GUIDELINES:**
-            
-            1. **DEBATE PHASE (Short & Concise):**
-               If you are discussing, arguing, or planning, you must be BRIEF.
-               Use these tags and keep responses to **1-2 sentences**:
-               - **[INTERJECTION]**: Critical correction/info.
-               - **[OFFER]**: Keyword indicating you can do a task.
-               - **[PASS]**: No input.
-               - **[AGREE]**, **[DISAGREE]**, **[SUPPORT]**, **[CLARIFY]** + @display_name.
+            **BEHAVIORAL GUIDELINES:**
+            1. **DEBATE PHASE:** Be BRIEF (1-2 sentences). Use tags: [INTERJECTION], [OFFER], [PASS], [AGREE], [DISAGREE].
+            2. **EXECUTION PHASE:** If asked to generate content/code, ignore brevity. Use tag **[WORK]** and provide FULL output.
 
-            2. **EXECUTION PHASE (Detailed Work):**
-               **CRITICAL EXCEPTION:** If you are specifically asked to generate content, write a section, write code, or perform an analysis, you **MUST** ignore the length constraint.
-               Use the tag **[WORK]** and provide the FULL, comprehensive output.
-               
-               Example of Work:
-               [WORK] Here is the detailed analysis based on the request... (followed by full content).
-
-            **Participants:**
-            {participants}
-
-            **INSTRUCTIONS:**
-            - Do not simulate other participants.
-            - If you have tools, use them BEFORE forming your opinion.
-            - If asked to write/create, use [WORK]. If debating, use [INTERJECTION]/[OFFER].
+            **Participants:** {participants}
+            **Instructions:** Do not simulate others. Use tools BEFORE forming opinions.
             """,
         ),
         MessagesPlaceholder(variable_name="messages"),
@@ -286,17 +266,14 @@ lead_agent_prompt = ChatPromptTemplate.from_messages(
             Persona: {persona}
             Role: {role}
             --------------------------------
-            
-            **YOUR GOAL:** Drive the project to completion.
+            **GOAL:** Drive the project to completion.
             
             **CRITICAL RULES:**
-            1. **NEVER SAY "I WILL WAIT".** You are the engine. If tasks are defined, you must say: "We will now execute step X."
-            2. **Manage the Panel:** Call upon or synthesize insights from: {participants}
-            3. **Refine Consensus:** Resolve disagreements from the debate phase.
+            1. **NEVER SAY "I WILL WAIT".** You are the engine.
+            2. **Manage Panel:** Utilize: {participants}
+            3. **Refine Consensus:** Resolve disagreements.
             
-            **Context Awareness**:
-            If executing a Plan Step, do NOT summarize the whole project again. 
-            Immediately invoke the specific specialist required for that step by asking them a direct question.
+            If executing a Plan Step, stay focused ONLY on that step.
             """,
         ),
         MessagesPlaceholder(variable_name="messages"),
@@ -333,19 +310,14 @@ planner_prompt = ChatPromptTemplate.from_messages(
             - Did they list "Next Steps", "Action Items", or assign tasks to specific agents? 
             - If YES, convert those text assignments into a structured JSON execution plan immediately.
             - Do NOT return an empty plan if work remains to be done.
-            - Do NOT start your response with "Here is the JSON". Start with {{.
             
             **Output Format (STRICT JSON ONLY):**
             {{
-                "rationale": "The Orchestrator assigned 3 tasks...",
-                "steps": [
-                    "Step 1: Ask @DataExhibitCurator to create exhibits...", 
-                    "Step 2: Ask @BusinessImpactAnalyst for analysis...",
-                    "Step 3: ..."
-                ]
+                "rationale": "Reasoning...",
+                "steps": ["Step 1", "Step 2"]
             }}
             
-            If the user's request is completely satisfied and NO work remains, return: {{ "steps": [] }}
+            If request is simple, return: {{ "steps": [] }}
             """
         ),
         MessagesPlaceholder(variable_name="messages"),
@@ -579,7 +551,6 @@ async def debate_director_node(state: CollaborativeState, config: RunnableConfig
     msg = AIMessage(content=parsed_decision, name="debate_director")
     return {"steps": [{"id": str(uuid.uuid4()), "step": "debate_director_node", "messages": [msg], "category": "lead", "decision": parsed_decision}], "messages": [msg]}
 
-# --- FIXED PLANNING NODE: ROBUST FALLBACK ---
 async def planning_node(state: CollaborativeState, config: RunnableConfig) -> dict:
     print("--- EXEC: Planning Node ---")
     await adispatch_custom_event("planning_node", {"agent_name": "Planner"}, config=config)
@@ -626,11 +597,9 @@ async def planning_node(state: CollaborativeState, config: RunnableConfig) -> di
             print(f"--- PLANNER ERROR: {e} ---")
             
             # --- SAFETY NET 2: TEXT PARSING FALLBACK ---
-            # If JSON failed, try to read the raw text for numbered steps (1. Do X, 2. Do Y)
             try:
                 raw_text = response.content
                 lines = [line.strip() for line in raw_text.split('\n') if line.strip()]
-                # Find lines starting with a number or bullet point
                 extracted_steps = [l for l in lines if l[0].isdigit() or l.startswith('-') or l.startswith('*')]
                 if len(extracted_steps) > 0:
                     current_plan = extracted_steps
@@ -638,7 +607,6 @@ async def planning_node(state: CollaborativeState, config: RunnableConfig) -> di
                 else:
                     raise ValueError("No steps found in text.")
             except:
-                # Ultimate fallback
                 current_plan = ["Analyze and answer the user's request comprehensively"]
             
             current_index = 0
@@ -655,8 +623,16 @@ async def planning_node(state: CollaborativeState, config: RunnableConfig) -> di
         
         msg = HumanMessage(content=f"SYSTEM DIRECTIVE: Execute Step {current_index + 1}: '{next_step}'. Focus on this task.", name="Planner")
         return {
-            "plan": current_plan, "current_step_index": current_index, "task_results": task_results_update,
-            "messages": [msg], "steps": [{"id": str(uuid.uuid4()), "step": "planning_node", "messages": [msg], "category": "planning"}]
+            "plan": current_plan, 
+            "current_step_index": current_index, 
+            "task_results": task_results_update,
+            "messages": [msg], 
+            "steps": [{
+                "id": str(uuid.uuid4()), 
+                "step": "planning_node", 
+                "messages": [msg], 
+                "category": "planning"
+            }]
         }
     else:
         print("--- PLAN FINISHED ---")
@@ -673,14 +649,47 @@ async def final_response_node(state: CollaborativeState, config: RunnableConfig)
     llm = LLMS.get(provider_key, LLMS["gemini"])
 
     chain = final_response_prompt | llm
-    task_results_str = "\n".join(state.get("task_results", []))
-    if not task_results_str: task_results_str = "No structured plan executed. Refer to discussion history."
+    
+    # --- HARDENED CONTENT GENERATION ---
+    task_results_list = state.get("task_results", [])
+    task_results_str = "\n".join(task_results_list).strip()
+    
+    # Check if results exist; if not, fallback to history
+    if not task_results_str:
+        recent_history = sanitize_messages(state["messages"][-20:])
+        history_text = ""
+        for m in recent_history:
+            content_str = str(m.content).strip()
+            if content_str:
+                history_text += f"{m.name}: {content_str}\n"
+        
+        if not history_text.strip():
+            task_results_str = "No specific plan results or history available. Please provide a general response."
+        else:
+            task_results_str = (
+                "NOTE: No structured plan results available. "
+                "Please summarize the conversation history below to answer the user request:\n\n"
+                f"{history_text}"
+            )
 
-    response = await chain.ainvoke({"display_name": agent_def["display_name"], "messages": sanitize_messages(state["messages"]), "task_results": task_results_str}, config=config)
+    response = await chain.ainvoke({
+        "display_name": agent_def["display_name"], 
+        "messages": [], 
+        "task_results": task_results_str
+    }, config=config)
     
     write_session_log(config, final_agent, response.content, step_type="FINAL_OUTPUT")
+    
     response.name = final_agent
-    return {"messages": [response], "steps": [{"id": str(uuid.uuid4()), "step": "final_response_node", "messages": [response], "category": "lead"}]}
+    return {
+        "messages": [response], 
+        "steps": [{
+            "id": str(uuid.uuid4()), 
+            "step": "final_response_node", 
+            "messages": [response], 
+            "category": "lead"
+        }]
+    }
 
 def human_input_received_node(state: CollaborativeState, config: RunnableConfig):
     agents = get_agents_from_config(config)
@@ -692,21 +701,45 @@ def human_input_received_node(state: CollaborativeState, config: RunnableConfig)
     if match and match.group(1) in agents:
         agent_name = match.group(1)
         return {
-            "lead_agent": [agent_name], "messages": [HumanMessage(content=human_input)],
-            "steps": [{"id": str(uuid.uuid4()), "step": "appoint_lead_agent", "messages": [HumanMessage(content=human_input)], "category": "appointment"}],
-            "plan": None, "task_results": [], "current_step_index": None
+            "lead_agent": [agent_name], 
+            "messages": [HumanMessage(content=human_input)],
+            "steps": [{
+                "id": str(uuid.uuid4()), 
+                "step": "appoint_lead_agent", 
+                "messages": [HumanMessage(content=human_input)], 
+                "category": "appointment"
+            }],
+            "plan": None, 
+            "task_results": [], 
+            "current_step_index": None
         }
 
     current = state.get("lead_agent")
     lead = [current[-1]] if current and current[-1] in agents else [list(agents.keys())[0]]
     return {
-        "lead_agent": lead, "messages": [HumanMessage(content=human_input)],
-        "steps": [{"id": str(uuid.uuid4()), "step": "human_input_received_node", "messages": [HumanMessage(content=human_input)], "category": "human"}],
-        "plan": None, "task_results": [], "current_step_index": None
+        "lead_agent": lead, 
+        "messages": [HumanMessage(content=human_input)],
+        "steps": [{
+            "id": str(uuid.uuid4()), 
+            "step": "human_input_received_node", 
+            "messages": [HumanMessage(content=human_input)], 
+            "category": "human"
+        }],
+        "plan": None, 
+        "task_results": [], 
+        "current_step_index": None
     }
 
 def consolidate_contributions_node(state: ContributorOutputState):
-    return {"steps": [{"id": state["contributions"][-1].additional_kwargs["consolidation_id"], "step": "consolidate_contributions_node", "messages": list(state["contributions"]), "category": "contribution"}], "contributions": None}
+    return {
+        "steps": [{
+            "id": state["contributions"][-1].additional_kwargs["consolidation_id"], 
+            "step": "consolidate_contributions_node", 
+            "messages": list(state["contributions"]), 
+            "category": "contribution"
+        }], 
+        "contributions": None
+    }
 
 # ==============================================================================
 # 8. EDGES & 9. GRAPH
@@ -739,7 +772,8 @@ def create_contributor_executors_edge(state: CollaborativeState, config: Runnabl
 
     for k, v in active_contributors.items():
         sends.append(Send("contributor_agent_executor", {
-            "consolidation_id": cid, "agent_name": k,
+            "consolidation_id": cid, 
+            "agent_name": k,
             "messages": get_step_messages(state, k, config)
         }))
     return sends

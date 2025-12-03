@@ -9,7 +9,9 @@ Aim to support Local LLMs through Ollama
 
 ************************
 
-Case on a CTO of Consulting and Technology Services Firm deciding on Measuring Programmer Productivity in age of GenAI
+
+
+Case on a CTO of Consulting and Technology Services Firm deciding on Measuring Programmer Productivity in age of GenAI. Need to decide before customer meet in 2 weeks.
 
  and Vibe coding
 
